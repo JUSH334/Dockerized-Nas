@@ -81,7 +81,8 @@ $recent = $pdo->query('
 
 // Per-user storage
 $user_storage = $pdo->query('
-    SELECT u.username, u.role, COALESCE(SUM(f.filesize),0) AS used, COUNT(f.id) AS file_count
+    SELECT u.username, u.role, u.storage_quota,
+           COALESCE(SUM(f.filesize),0) AS used, COUNT(f.id) AS file_count
     FROM users u
     LEFT JOIN files f ON f.owner_id = u.id AND f.is_folder = 0
     GROUP BY u.id
@@ -372,11 +373,28 @@ function file_icon(string $type): string {
                 <span style="font-size:10px;color:var(--accent);font-family:'Space Mono',monospace;margin-left:4px">ADMIN</span>
               <?php endif; ?>
             </span>
-            <span class="user-size"><?= fmt((int)$u['used']) ?> · <?= $u['file_count'] ?> files</span>
+            <span class="user-size">
+              <?= fmt((int)$u['used']) ?>
+              <?= $u['storage_quota'] ? ' / ' . fmt((int)$u['storage_quota']) : ' / ∞' ?>
+              · <?= $u['file_count'] ?> files
+            </span>
           </div>
+          <?php
+            $quota = $u['storage_quota'];
+            if ($quota) {
+                $pct   = min(100, round($u['used'] / $quota * 100));
+                $color = $pct >= 90 ? 'var(--danger)' : ($pct >= 70 ? 'var(--warn)' : null);
+          ?>
           <div class="mini-bar-track">
-            <div class="mini-bar-fill" style="width:<?= $u['used'] > 0 ? round(($u['used']/$max)*100) : 0 ?>%"></div>
+            <div class="mini-bar-fill" style="width:<?= $pct ?>%<?= $color ? ";background:$color" : '' ?>"></div>
           </div>
+          <?php } else {
+            $bar_pct = $max > 0 ? round(($u['used']/$max)*100) : 0;
+          ?>
+          <div class="mini-bar-track">
+            <div class="mini-bar-fill" style="width:<?= $bar_pct ?>%"></div>
+          </div>
+          <?php } ?>
         </li>
         <?php endforeach; ?>
       </ul>
