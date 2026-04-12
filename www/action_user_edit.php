@@ -10,6 +10,10 @@ $email    = trim($_POST['email']    ?? '') ?: null;
 $password = $_POST['password'] ?? '';
 $role     = in_array($_POST['role'] ?? '', ['admin','user']) ? $_POST['role'] : 'user';
 
+// Quota: convert MB to bytes; empty/0 = unlimited (NULL)
+$quota_mb = trim($_POST['storage_quota_mb'] ?? '');
+$quota    = ($quota_mb !== '' && (int)$quota_mb > 0) ? (int)$quota_mb * 1048576 : null;
+
 if (!$id || $username === '') {
     $_SESSION['flash'] = ['type' => 'error', 'msg' => 'Invalid request.'];
     header('Location: /users.php'); exit;
@@ -29,11 +33,11 @@ if ($password !== '') {
         header('Location: /users.php'); exit;
     }
     $hash = password_hash($password, PASSWORD_BCRYPT);
-    $pdo->prepare('UPDATE users SET username=?, email=?, password=?, role=? WHERE id=?')
-        ->execute([$username, $email, $hash, $role, $id]);
+    $pdo->prepare('UPDATE users SET username=?, email=?, password=?, role=?, storage_quota=? WHERE id=?')
+        ->execute([$username, $email, $hash, $role, $quota, $id]);
 } else {
-    $pdo->prepare('UPDATE users SET username=?, email=?, role=? WHERE id=?')
-        ->execute([$username, $email, $role, $id]);
+    $pdo->prepare('UPDATE users SET username=?, email=?, role=?, storage_quota=? WHERE id=?')
+        ->execute([$username, $email, $role, $quota, $id]);
 }
 
 $_SESSION['flash'] = ['type' => 'success', 'msg' => "User \"$username\" updated."];

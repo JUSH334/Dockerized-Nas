@@ -5,12 +5,23 @@ require_once 'db.php';
 
 $user = current_user();
 
-// Fetch all users
+// Fetch all users with their storage usage
 $users = $pdo->query('
-    SELECT id, username, email, role, created_at, last_login
-    FROM users
-    ORDER BY created_at DESC
+    SELECT u.id, u.username, u.email, u.role, u.created_at, u.last_login,
+           u.storage_quota,
+           COALESCE(SUM(CASE WHEN f.is_folder = 0 THEN f.filesize ELSE 0 END), 0) AS storage_used
+    FROM users u
+    LEFT JOIN files f ON f.owner_id = u.id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
 ')->fetchAll();
+
+function fmt_bytes(int $b): string {
+    if ($b >= 1073741824) return round($b/1073741824,2).' GB';
+    if ($b >= 1048576)   return round($b/1048576,1).' MB';
+    if ($b >= 1024)      return round($b/1024,1).' KB';
+    return $b.' B';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -151,6 +162,7 @@ $users = $pdo->query('
       <tr>
         <th>User</th>
         <th>Role</th>
+        <th>Storage</th>
         <th>Joined</th>
         <th>Last Login</th>
         <th></th>
@@ -171,11 +183,33 @@ $users = $pdo->query('
         <td>
           <span class="badge badge-<?= $u['role'] ?>"><?= strtoupper($u['role']) ?></span>
         </td>
+        <td>
+          <?php
+            $used  = (int)$u['storage_used'];
+            $quota = $u['storage_quota'];
+            if ($quota) {
+                $pct = min(100, round($used / $quota * 100));
+                $bar_class = $pct >= 90 ? 'danger' : ($pct >= 70 ? 'warn' : 'ok');
+                $color = $pct >= 90 ? 'var(--danger)' : ($pct >= 70 ? 'var(--warn)' : 'var(--accent)');
+          ?>
+            <div style="min-width:120px">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                <span><?= fmt_bytes($used) ?></span>
+                <span><?= fmt_bytes((int)$quota) ?></span>
+              </div>
+              <div style="height:4px;background:var(--surface2);border-radius:99px;overflow:hidden">
+                <div style="height:100%;width:<?= $pct ?>%;background:<?= $color ?>;border-radius:99px"></div>
+              </div>
+            </div>
+          <?php } else { ?>
+            <span class="meta"><?= fmt_bytes($used) ?> <span style="color:var(--muted);font-size:11px">/ ∞</span></span>
+          <?php } ?>
+        </td>
         <td class="meta"><?= date('M j, Y', strtotime($u['created_at'])) ?></td>
         <td class="meta"><?= $u['last_login'] ? date('M j, Y g:i a', strtotime($u['last_login'])) : 'Never' ?></td>
         <td>
           <div class="actions">
-            <button class="action-btn" onclick='openEdit(<?= json_encode($u) ?>)' title="Edit">✏️</button>
+            <button class="action-btn" onclick='openEdit(<?= json_encode(['id'=>$u['id'],'username'=>$u['username'],'email'=>$u['email'],'role'=>$u['role'],'storage_quota'=>$u['storage_quota']]) ?>)' title="Edit">✏️</button>
             <?php if ($u['id'] != $user['id']): ?>
             <a class="action-btn del"
                href="/action_user_delete.php?id=<?= $u['id'] ?>"
@@ -215,6 +249,10 @@ $users = $pdo->query('
           <option value="admin">Admin</option>
         </select>
       </div>
+      <div class="field">
+        <label>Storage Quota (MB) <span style="font-size:10px;opacity:.5">(leave blank for unlimited)</span></label>
+        <input type="number" name="storage_quota_mb" min="1" placeholder="e.g. 500">
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" onclick="closeModal('modal-create')">Cancel</button>
         <button type="submit" class="btn btn-primary">Create User</button>
@@ -248,6 +286,10 @@ $users = $pdo->query('
           <option value="admin">Admin</option>
         </select>
       </div>
+      <div class="field">
+        <label>Storage Quota (MB) <span style="font-size:10px;opacity:.5">(leave blank for unlimited)</span></label>
+        <input type="number" name="storage_quota_mb" id="edit-quota" min="1" placeholder="e.g. 500">
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" onclick="closeModal('modal-edit')">Cancel</button>
         <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -269,6 +311,8 @@ function openEdit(u) {
   document.getElementById('edit-username').value = u.username;
   document.getElementById('edit-email').value    = u.email || '';
   document.getElementById('edit-role').value     = u.role;
+  const qMb = u.storage_quota ? Math.round(u.storage_quota / 1048576) : '';
+  document.getElementById('edit-quota').value    = qMb;
   openModal('modal-edit');
 }
 </script>
