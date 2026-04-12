@@ -375,7 +375,7 @@ function file_icon(string $type): string {
             </span>
             <span class="user-size">
               <?= fmt((int)$u['used']) ?>
-              <?= $u['storage_quota'] ? ' / ' . fmt((int)$u['storage_quota']) : ' / ∞' ?>
+              <?= $u['storage_quota'] ? ' / ' . fmt((int)$u['storage_quota']) : ' / ' . fmt((int)disk_total_space('/')) ?>
               · <?= $u['file_count'] ?> files
             </span>
           </div>

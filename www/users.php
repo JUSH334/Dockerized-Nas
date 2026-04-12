@@ -202,7 +202,7 @@ function fmt_bytes(int $b): string {
               </div>
             </div>
           <?php } else { ?>
-            <span class="meta"><?= fmt_bytes($used) ?> <span style="color:var(--muted);font-size:11px">/ ∞</span></span>
+            <span class="meta"><?= fmt_bytes($used) ?> <span style="color:var(--muted);font-size:11px">/ <?= fmt_bytes((int)disk_total_space('/')) ?></span></span>
           <?php } ?>
         </td>
         <td class="meta"><?= date('M j, Y', strtotime($u['created_at'])) ?></td>

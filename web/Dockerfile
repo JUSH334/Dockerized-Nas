@@ -15,6 +15,25 @@ WORKDIR /var/www/html
 # Create backups directory with proper permissions
 RUN mkdir -p /var/www/backups && chown www-data:www-data /var/www/backups
 
+# Redirect Apache logs to real files instead of /dev/stdout (which hangs in Docker)
+RUN rm -f /var/log/apache2/access.log /var/log/apache2/error.log /var/log/apache2/other_vhosts_access.log \
+    && touch /var/log/apache2/access.log /var/log/apache2/error.log \
+    && chown www-data:www-data /var/log/apache2/access.log /var/log/apache2/error.log
+
+# Configure PHP: error logging and upload limits
+RUN echo "log_errors = On" >> /usr/local/etc/php/php.ini \
+    && echo "error_log = /var/log/php_errors.log" >> /usr/local/etc/php/php.ini \
+    && echo "upload_max_filesize = 512M" >> /usr/local/etc/php/php.ini \
+    && echo "post_max_size = 512M" >> /usr/local/etc/php/php.ini \
+    && echo "memory_limit = 256M" >> /usr/local/etc/php/php.ini \
+    && touch /var/log/php_errors.log \
+    && chown www-data:www-data /var/log/php_errors.log
+
+# Create log files for backup and cron
+RUN touch /var/log/backup_cron.log /var/log/cron.log \
+    && chown www-data:www-data /var/log/backup_cron.log \
+    && chmod 666 /var/log/cron.log
+
 # Allow .htaccess overrides
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 

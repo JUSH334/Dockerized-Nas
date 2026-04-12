@@ -9,11 +9,11 @@ $user = current_user();
 $log_type = $_GET['log'] ?? 'apache_access';
 
 $log_files = [
-    'apache_access' => ['label' => 'Apache Access Log',  'path' => '/var/log/apache2/access.log',    'docker_cmd' => 'docker logs nas-web 2>/dev/null'],
-    'apache_error'  => ['label' => 'Apache Error Log',   'path' => '/var/log/apache2/error.log',     'docker_cmd' => 'docker logs nas-web 2>&1 1>/dev/null'],
-    'php_error'     => ['label' => 'PHP Error Log',      'path' => '/var/log/php_errors.log',        'docker_cmd' => null],
-    'backup_log'    => ['label' => 'Backup Log',         'path' => '/var/log/backup_cron.log',       'docker_cmd' => null],
-    'syslog'        => ['label' => 'System Log',         'path' => '/var/log/syslog',                'docker_cmd' => null],
+    'apache_access' => ['label' => 'Apache Access Log',  'path' => '/var/log/apache2/access.log'],
+    'apache_error'  => ['label' => 'Apache Error Log',   'path' => '/var/log/apache2/error.log'],
+    'php_error'     => ['label' => 'PHP Error Log',      'path' => '/var/log/php_errors.log'],
+    'backup_log'    => ['label' => 'Backup Log',         'path' => '/var/log/backup_cron.log'],
+    'cron_log'      => ['label' => 'Cron Log',           'path' => '/var/log/cron.log'],
 ];
 
 $current_log = $log_files[$log_type] ?? $log_files['apache_access'];
@@ -21,30 +21,16 @@ $log_content = '';
 $line_count  = (int)($_GET['lines'] ?? 100);
 
 $log_path = $current_log['path'];
-$is_symlink_to_dev = is_link($log_path) && str_starts_with(readlink($log_path), '/dev/');
 
-if ($is_symlink_to_dev) {
-    // In Docker, Apache logs go to stdout/stderr — read from /proc/1/fd instead
-    $fd_map = [
-        '/dev/stdout' => '/proc/1/fd/1',
-        '/dev/stderr' => '/proc/1/fd/2',
-    ];
-    $target = readlink($log_path);
-    $fd_path = $fd_map[$target] ?? null;
-
-    if ($fd_path && file_exists($fd_path)) {
-        $output = [];
-        exec("timeout 2 tail -n " . escapeshellarg($line_count) . " " . escapeshellarg($fd_path) . " 2>&1", $output);
-        $log_content = implode("\n", $output);
-    } else {
-        $log_content = "(Docker container log — view with: docker logs nas-web)";
-    }
-} elseif (file_exists($log_path) && is_file($log_path)) {
+if (file_exists($log_path) && !is_link($log_path) && is_readable($log_path)) {
     $output = [];
     exec("tail -n " . escapeshellarg($line_count) . " " . escapeshellarg($log_path) . " 2>&1", $output);
     $log_content = implode("\n", $output);
+    if (trim($log_content) === '') {
+        $log_content = "(Log is empty — activity will appear here as the server handles requests.)";
+    }
 } else {
-    $log_content = "(Log file not found: {$log_path})";
+    $log_content = "(Log file not available: {$log_path})";
 }
 ?>
 <!DOCTYPE html>

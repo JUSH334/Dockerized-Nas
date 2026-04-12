@@ -1,0 +1,31 @@
+{
+  "server": {
+    "name": "NAS-Production",
+    "version": "1.0",
+    "environment": "docker"
+  },
+  "services": {
+    "web": {
+      "engine": "Apache 2.4",
+      "runtime": "PHP 8.2",
+      "port": 8080
+    },
+    "database": {
+      "engine": "MySQL 8.0",
+      "name": "nas_db",
+      "port": 3306
+    },
+    "admin_panel": {
+      "tool": "phpMyAdmin",
+      "port": 8081
+    }
+  },
+  "features": [
+    "file_management",
+    "user_management",
+    "system_monitoring",
+    "backup_restore",
+    "access_control",
+    "system_logs"
+  ]
+}

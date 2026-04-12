@@ -1,0 +1,8 @@
+Category,Item,Cost,Status
+Infrastructure,Docker Desktop,Free,Active
+Infrastructure,GitHub Repository,Free,Active
+Database,MySQL 8.0,Free,Active
+Web Server,Apache 2.4,Free,Active
+Backend,PHP 8.2,Free,Active
+Admin Tool,phpMyAdmin,Free,Active
+Total,,0.00,All Free/Open Source

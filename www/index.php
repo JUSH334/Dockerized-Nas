@@ -34,14 +34,26 @@ $breadcrumbs = get_breadcrumbs($pdo, $folder_id);
 
 // List files in current folder
 if ($folder_id) {
-    $stmt = $pdo->prepare('
-        SELECT f.*, u.username AS owner_name
-        FROM files f
-        LEFT JOIN users u ON f.owner_id = u.id
-        WHERE f.parent_id = ?
-        ORDER BY f.is_folder DESC, f.filename ASC
-    ');
-    $stmt->execute([$folder_id]);
+    if (is_admin()) {
+        $stmt = $pdo->prepare('
+            SELECT f.*, u.username AS owner_name
+            FROM files f
+            LEFT JOIN users u ON f.owner_id = u.id
+            WHERE f.parent_id = ?
+            ORDER BY f.is_folder DESC, f.filename ASC
+        ');
+        $stmt->execute([$folder_id]);
+    } else {
+        $stmt = $pdo->prepare('
+            SELECT DISTINCT f.*, u.username AS owner_name
+            FROM files f
+            LEFT JOIN users u ON f.owner_id = u.id
+            LEFT JOIN permissions p ON p.file_id = f.id AND p.user_id = ?
+            WHERE f.parent_id = ? AND (f.owner_id = ? OR p.can_read = 1)
+            ORDER BY f.is_folder DESC, f.filename ASC
+        ');
+        $stmt->execute([$user['id'], $folder_id, $user['id']]);
+    }
 } else {
     // Root: show items owned by this user (or all if admin)
     if (is_admin()) {
@@ -55,13 +67,14 @@ if ($folder_id) {
         $stmt->execute();
     } else {
         $stmt = $pdo->prepare('
-            SELECT f.*, u.username AS owner_name
+            SELECT DISTINCT f.*, u.username AS owner_name
             FROM files f
             LEFT JOIN users u ON f.owner_id = u.id
-            WHERE f.parent_id IS NULL AND f.owner_id = ?
+            LEFT JOIN permissions p ON p.file_id = f.id AND p.user_id = ?
+            WHERE f.parent_id IS NULL AND (f.owner_id = ? OR p.can_read = 1)
             ORDER BY f.is_folder DESC, f.filename ASC
         ');
-        $stmt->execute([$user['id']]);
+        $stmt->execute([$user['id'], $user['id']]);
     }
 }
 $items = $stmt->fetchAll();
@@ -86,6 +99,18 @@ function file_icon(string $type, bool $is_folder): string {
 }
 
 $folder_param = $folder_id ? "?folder=$folder_id" : '';
+
+// Get current user's storage usage and quota
+$storage_stmt = $pdo->prepare('
+    SELECT COALESCE(SUM(filesize), 0) AS used
+    FROM files WHERE owner_id = ? AND is_folder = 0
+');
+$storage_stmt->execute([$user['id']]);
+$storage_used = (int)$storage_stmt->fetchColumn();
+
+$quota_stmt = $pdo->prepare('SELECT storage_quota FROM users WHERE id = ?');
+$quota_stmt->execute([$user['id']]);
+$storage_quota = $quota_stmt->fetchColumn();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -424,6 +449,25 @@ $folder_param = $folder_id ? "?folder=$folder_id" : '';
     <h1><?= $current_folder ? htmlspecialchars($current_folder['filename']) : 'My Files' ?></h1>
     <button class="btn btn-secondary" onclick="openModal('modal-folder')">＋ New Folder</button>
     <button class="btn btn-primary" onclick="openModal('modal-upload')">↑ Upload</button>
+  </div>
+
+  <!-- Storage usage -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;margin-bottom:18px;display:flex;align-items:center;gap:16px;">
+    <span style="font-size:13px;color:var(--muted);white-space:nowrap;">Storage:</span>
+    <div style="flex:1;">
+      <div style="height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;">
+        <?php
+          $max = $storage_quota ? (int)$storage_quota : disk_total_space('/');
+          $pct = $max > 0 ? min(100, round($storage_used / $max * 100)) : 0;
+          $bar_color = $pct >= 90 ? 'var(--danger)' : ($pct >= 70 ? 'var(--warn)' : 'linear-gradient(90deg, var(--accent), var(--accent2))');
+        ?>
+        <div style="height:100%;width:<?= $pct ?>%;background:<?= $bar_color ?>;border-radius:99px;transition:width 0.5s;"></div>
+      </div>
+    </div>
+    <span style="font-size:12px;font-family:'Space Mono',monospace;color:var(--text);white-space:nowrap;">
+      <?php $display_max = $storage_quota ? (int)$storage_quota : disk_total_space('/'); ?>
+      <?= fmt_size($storage_used) ?> / <?= fmt_size($display_max) ?>
+    </span>
   </div>
 
   <!-- File listing -->

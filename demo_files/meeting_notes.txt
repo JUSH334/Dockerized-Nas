@@ -1,0 +1,17 @@
+NAS Project - Team Meeting Notes
+Date: April 10, 2026
+
+Attendees: Josh, Michael, Bosia
+
+Agenda:
+1. Docker setup status - COMPLETE
+2. Web interface progress - COMPLETE
+3. Backup/restore feature - COMPLETE
+4. Testing status - 45 unit tests, 30 E2E tests passing
+
+Action Items:
+- Josh: Finalize documentation and prepare demo
+- Michael: Review permissions system
+- Bosia: Test backup scheduling
+
+Next Meeting: April 14, 2026
