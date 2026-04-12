@@ -488,14 +488,32 @@ $storage_quota = $quota_stmt->fetchColumn();
       </tr>
     </thead>
     <tbody>
-      <?php foreach ($items as $item): ?>
+      <?php foreach ($items as $item):
+        // Determine permissions for this item
+        $is_owner = $item['owner_id'] == $user['id'];
+        $can_read = $is_owner || is_admin();
+        $can_write = $is_owner || is_admin();
+        $can_delete = $is_owner || is_admin();
+
+        // If not owner/admin, check the permissions table
+        if (!$is_owner && !is_admin()) {
+            $pstmt = $pdo->prepare('SELECT can_read, can_write, can_delete FROM permissions WHERE file_id = ? AND user_id = ?');
+            $pstmt->execute([$item['id'], $user['id']]);
+            $perms = $pstmt->fetch();
+            $can_read   = $perms ? (bool)$perms['can_read'] : false;
+            $can_write  = $perms ? (bool)$perms['can_write'] : false;
+            $can_delete = $perms ? (bool)$perms['can_delete'] : false;
+        }
+      ?>
       <tr>
         <td class="file-name">
           <span class="icon"><?= file_icon($item['filetype'] ?? '', (bool)$item['is_folder']) ?></span>
           <?php if ($item['is_folder']): ?>
             <a href="/?folder=<?= $item['id'] ?>"><?= htmlspecialchars($item['filename']) ?></a>
-          <?php else: ?>
+          <?php elseif ($can_read): ?>
             <a href="/download.php?id=<?= $item['id'] ?>"><?= htmlspecialchars($item['filename']) ?></a>
+          <?php else: ?>
+            <span><?= htmlspecialchars($item['filename']) ?></span>
           <?php endif; ?>
         </td>
         <td class="file-meta"><?= $item['is_folder'] ? '—' : fmt_size((int)$item['filesize']) ?></td>
@@ -503,16 +521,16 @@ $storage_quota = $quota_stmt->fetchColumn();
         <td class="file-meta"><?= date('M j, Y', strtotime($item['updated_at'])) ?></td>
         <td>
           <div class="actions">
-            <?php if (!$item['is_folder']): ?>
+            <?php if (!$item['is_folder'] && $can_read): ?>
             <a class="action-btn" href="/download.php?id=<?= $item['id'] ?>" title="Download">⬇</a>
             <?php endif; ?>
-            <?php if (is_admin() || $item['owner_id'] == $user['id']): ?>
+            <?php if ($is_owner || is_admin() || $can_write): ?>
             <button class="action-btn" onclick="openRename(<?= $item['id'] ?>, '<?= htmlspecialchars(addslashes($item['filename'])) ?>')" title="Rename">✏️</button>
             <?php endif; ?>
             <?php if (is_admin()): ?>
             <a class="action-btn" href="/permissions.php?file_id=<?= $item['id'] ?>" title="Permissions">🔒</a>
             <?php endif; ?>
-            <?php if (is_admin() || $item['owner_id'] == $user['id']): ?>
+            <?php if ($is_owner || is_admin() || $can_delete): ?>
             <a class="action-btn del" href="/delete.php?id=<?= $item['id'] ?><?= $folder_id ? "&folder=$folder_id" : '' ?>"
                onclick="return confirm('Delete <?= htmlspecialchars(addslashes($item['filename'])) ?>?')"
                title="Delete">🗑</a>

@@ -177,9 +177,10 @@ if [ -n "$E2E_USER_ID" ]; then
     pass "Cleanup: test user deleted"
 fi
 
-# Delete test files via DB
+# Delete test files via DB and from disk
 MSYS_NO_PATHCONV=1 docker exec nas-db mysql -u nas_user -pchangeme_user nas_db -e "DELETE FROM files WHERE filename = 'nas_e2e_test_file.txt';" 2>/dev/null
 MSYS_NO_PATHCONV=1 docker exec nas-db mysql -u nas_user -pchangeme_user nas_db -e "DELETE FROM files WHERE filename = 'E2E_Test_Folder';" 2>/dev/null
+MSYS_NO_PATHCONV=1 docker exec nas-web bash -c "find /var/www/uploads -name 'nas_e2e_test_file*' -delete 2>/dev/null; find /var/www/uploads -type d -empty -delete 2>/dev/null"
 pass "Cleanup: test files removed"
 
 echo ""
