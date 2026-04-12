@@ -9,6 +9,10 @@ $email    = trim($_POST['email']    ?? '') ?: null;
 $password = $_POST['password'] ?? '';
 $role     = in_array($_POST['role'] ?? '', ['admin','user']) ? $_POST['role'] : 'user';
 
+// Quota: convert MB input to bytes; empty/0 = unlimited (NULL)
+$quota_mb = trim($_POST['storage_quota_mb'] ?? '');
+$quota    = ($quota_mb !== '' && (int)$quota_mb > 0) ? (int)$quota_mb * 1048576 : null;
+
 if ($username === '' || strlen($password) < 8) {
     $_SESSION['flash'] = ['type' => 'error', 'msg' => 'Username required and password must be at least 8 characters.'];
     header('Location: /users.php'); exit;
@@ -23,8 +27,8 @@ if ($stmt->fetch()) {
 }
 
 $hash = password_hash($password, PASSWORD_BCRYPT);
-$pdo->prepare('INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)')
-    ->execute([$username, $email, $hash, $role]);
+$pdo->prepare('INSERT INTO users (username, email, password, role, storage_quota) VALUES (?, ?, ?, ?, ?)')
+    ->execute([$username, $email, $hash, $role, $quota]);
 
 $_SESSION['flash'] = ['type' => 'success', 'msg' => "User \"$username\" created."];
 header('Location: /users.php');

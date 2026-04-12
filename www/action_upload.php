@@ -17,6 +17,24 @@ $original = basename($file['name']);
 $mime     = mime_content_type($file['tmp_name']) ?: 'application/octet-stream';
 $size     = $file['size'];
 
+// Quota check
+$quota_stmt = $pdo->prepare('SELECT storage_quota FROM users WHERE id = ?');
+$quota_stmt->execute([$user['id']]);
+$quota = $quota_stmt->fetchColumn(); // NULL = unlimited
+
+if ($quota !== null && $quota !== false) {
+    $used_stmt = $pdo->prepare('SELECT COALESCE(SUM(filesize), 0) FROM files WHERE owner_id = ? AND is_folder = 0');
+    $used_stmt->execute([$user['id']]);
+    $used = (int)$used_stmt->fetchColumn();
+
+    if ($used + $size > (int)$quota) {
+        $quota_mb = round($quota / 1048576, 1);
+        $used_mb  = round($used  / 1048576, 1);
+        $_SESSION['flash'] = ['type' => 'error', 'msg' => "Storage quota exceeded. You have used {$used_mb} MB of your {$quota_mb} MB limit."];
+        header("Location: $redirect"); exit;
+    }
+}
+
 // Sanitize filename
 $safe_name = preg_replace('/[^\w.\-]/', '_', $original);
 
