@@ -109,6 +109,41 @@ docker logs nas-tunnel 2>&1 | grep -oE "https://[a-zA-Z0-9-]+\.trycloudflare\.co
 
 ---
 
+## Optional: USB Backup Mirror (Windows)
+
+You can plug in any USB drive (flash stick or external HDD) and have the NAS automatically mirror every backup to it within ~3 seconds of creation. This is the "secondary backup destination" pattern real NAS products call **External Storage**.
+
+**Important:** This is fully optional. The NAS works perfectly without it — without a USB plugged in, the External Storage panel just shows "Disconnected" and nothing breaks.
+
+### Setup (3 steps, ~1 minute)
+
+1. **Plug in your USB drive.** Note the drive letter Windows assigns (e.g. `D:`, `E:`, `F:`).
+
+2. **Edit the watcher path.** Open [scripts/mirror_watcher.ps1](scripts/mirror_watcher.ps1) and change line 9 if your drive isn't `D:`:
+   ```powershell
+   [string]$Target = "D:\nas-backups"   # change D: to your drive letter
+   ```
+
+3. **Run the install script** in PowerShell (no admin needed):
+   ```powershell
+   .\scripts\install_usb_sync.ps1
+   ```
+
+That's it. The script registers a hidden Windows scheduled task that starts at user logon, polls every 3 seconds, and mirrors any new backup zip from `external_backups/` to the USB drive. Confirm by visiting the **Monitor** page in the NAS — the **External Storage** panel should show a green dot, capacity gauge, and live file count.
+
+### To remove later
+```powershell
+.\scripts\uninstall_usb_sync.ps1
+```
+
+### Notes
+- **File system:** if your USB is formatted as **FAT32**, large backups (>4 GB) will fail to copy. Reformat the drive as **exFAT** or **NTFS** before use (right-click drive in File Explorer → Format).
+- **Drive letter changes:** Windows usually keeps the same letter for the same physical port. If it shifts, just re-edit `mirror_watcher.ps1` and re-run `install_usb_sync.ps1`.
+- **Unplug-safe:** if you yank the USB, the watcher logs a "paused" message and waits. Plug it back in and it resumes within 3 seconds. The NAS itself is unaffected.
+- **Linux/Mac users:** the watcher is Windows-only (uses Task Scheduler + robocopy). The equivalent on Linux would be a tiny bash script + cron + `rsync` — easy to port if needed.
+
+---
+
 ## Features
 
 ### File Management ([index.php](www/index.php))
@@ -139,6 +174,7 @@ docker logs nas-tunnel 2>&1 | grep -oE "https://[a-zA-Z0-9-]+\.trycloudflare\.co
 - Restore from any archive (rewinds DB and files)
 - Auto-rotation: keeps last 10 automatic backups
 - Backups stored in `./external_backups/` on the host (survives container rebuilds)
+- Optional **USB drive mirror** via host-side watcher (see "Optional: USB Backup Mirror" above) — every backup is automatically copied to a second physical device within ~3 seconds of creation
 
 ### Logs ([logs.php](www/logs.php), admin only)
 - Apache access log
@@ -189,7 +225,14 @@ NAS/
 │   ├── ARCHITECTURE.md        # System overview
 │   ├── BACKEND.md             # PHP layer
 │   ├── FRONTEND.md            # UI layer
-│   └── SECURITY.md            # Defense layers
+│   ├── SECURITY.md            # Defense layers
+│   └── PRESENTATION.md        # Slide-by-slide reference
+├── scripts/                   # Optional Windows host-side helpers (USB mirror)
+│   ├── install_usb_sync.ps1     # Register the watcher as a logon task
+│   ├── uninstall_usb_sync.ps1   # Remove the task
+│   ├── mirror_watcher.ps1       # Long-running mirror daemon (3s polling)
+│   ├── mirror_watcher_launcher.vbs  # Hidden launcher (no console window)
+│   └── mirror_to_usb.ps1        # One-shot manual mirror
 └── tests/
     ├── unit_test.php          # 45 DB / business-logic tests
     ├── e2e_test.sh            # 30 HTTP end-to-end tests
