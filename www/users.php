@@ -590,10 +590,13 @@ function fileIcon(f) {
   return '<span class="detail-file-icon">FILE</span>';
 }
 
-function renderOwned(files) {
+function renderOwned(files, userCtx) {
   const body = document.getElementById('detail-body-owned');
   if (!files.length) {
-    body.innerHTML = '<div class="detail-empty">This user hasn\'t uploaded anything yet.</div>';
+    const note = userCtx && userCtx.role === 'admin'
+      ? '<br><span style="font-size:11px;opacity:0.7">Admins have implicit access to every file via role — they don\'t need to own files to manage the system.</span>'
+      : '';
+    body.innerHTML = '<div class="detail-empty">This user hasn\'t uploaded anything yet.' + note + '</div>';
     return;
   }
   const rows = files.map(f => {
@@ -614,12 +617,18 @@ function renderOwned(files) {
   </table>`;
 }
 
-function renderShared(files) {
+function renderShared(files, userCtx) {
   const body = document.getElementById('detail-body-shared');
   if (!files.length) {
-    body.innerHTML = '<div class="detail-empty">No files shared with this user.</div>';
+    const msg = userCtx && userCtx.role === 'admin'
+      ? 'No explicit shares. Admins have implicit access to all files via their role.'
+      : 'No files shared with this user.';
+    body.innerHTML = '<div class="detail-empty">' + msg + '</div>';
     return;
   }
+  const adminNote = userCtx && userCtx.role === 'admin'
+    ? '<div style="padding:10px 28px;font-size:11px;color:var(--muted);background:rgba(0,191,255,0.04);border-bottom:1px solid var(--border);">These explicit shares remain from before this user was promoted. Admins already have access to every file via their role, so these rows are redundant.</div>'
+    : '';
   const rows = files.map(f => {
     const date = new Date(f.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     return `<tr>
@@ -630,7 +639,7 @@ function renderShared(files) {
       <td style="color:var(--muted)">${date}</td>
     </tr>`;
   }).join('');
-  body.innerHTML = `<table class="detail-table">
+  body.innerHTML = adminNote + `<table class="detail-table">
     <thead><tr><th>File</th><th>Size</th><th>Owner</th><th>Permissions</th><th>Added</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -669,16 +678,15 @@ async function openUserDetail(userId) {
   document.getElementById('detail-shared-out').textContent  = data.summary.shared_by_them;
   document.getElementById('detail-shared-in').textContent   = data.summary.shared_with_them;
 
-  // Admins have implicit access to every file via require_admin() - they never
-  // have explicit permission rows, so the "Shared with them" tab and stat are
-  // always 0 and would be misleading. Hide both for admin users.
-  const isAdmin = data.user.role === 'admin';
-  document.querySelector('.detail-tab[data-tab="shared"]').style.display = isAdmin ? 'none' : '';
-  document.getElementById('detail-shared-in').parentElement.style.display = isAdmin ? 'none' : '';
-  if (isAdmin) showDetailTab('owned');
+  // Admins have implicit access to every file via their role - explicit
+  // permission rows aren't needed. But they can still have leftover rows
+  // from before they were promoted, so always show the tab and let the
+  // empty state explain the context.
+  document.querySelector('.detail-tab[data-tab="shared"]').style.display = '';
+  document.getElementById('detail-shared-in').parentElement.style.display = '';
 
-  renderOwned(data.owned);
-  renderShared(data.shared_with);
+  renderOwned(data.owned, data.user);
+  renderShared(data.shared_with, data.user);
 }
 </script>
 </body>
