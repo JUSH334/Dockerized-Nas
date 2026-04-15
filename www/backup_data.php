@@ -28,6 +28,22 @@ if (file_exists($heartbeat)) {
     ];
 }
 
+// Reconcile: remove DB rows whose file is gone, add rows for zips on disk
+$known = [];
+foreach ($pdo->query('SELECT id, filepath FROM backups')->fetchAll() as $r) {
+    if (!file_exists($r['filepath'])) {
+        $pdo->prepare('DELETE FROM backups WHERE id = ?')->execute([$r['id']]);
+    } else {
+        $known[$r['filepath']] = true;
+    }
+}
+foreach (glob('/var/www/backups/nas_*backup_*.zip') ?: [] as $zip) {
+    if (empty($known[$zip])) {
+        $pdo->prepare('INSERT INTO backups (filename, filepath, filesize, created_by) VALUES (?,?,?,1)')
+            ->execute([basename($zip), $zip, filesize($zip)]);
+    }
+}
+
 // All backups
 $backups = $pdo->query(
     "SELECT b.id, b.filename, b.filepath, b.filesize, b.created_at, u.username

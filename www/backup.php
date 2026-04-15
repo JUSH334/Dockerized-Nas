@@ -27,6 +27,33 @@ function usb_destination_active(): bool {
     return usb_sync_status()['active'];
 }
 
+// ── Reconcile backup DB rows with files on disk ─────────
+// Runs AFTER all action handlers so the list query sees clean state, even
+// after a Restore (which replaces the entire DB with a prior snapshot,
+// potentially leaving orphan rows pointing at files that no longer exist).
+//  1. DB row whose file is gone   → delete row (orphan-row)
+//  2. Zip on disk with no DB row  → insert row (orphan-file)
+function reconcile_backups(PDO $pdo): array {
+    $removed = 0; $added = 0;
+    $known = [];
+    foreach ($pdo->query('SELECT id, filename, filepath FROM backups')->fetchAll() as $r) {
+        if (!file_exists($r['filepath'])) {
+            $pdo->prepare('DELETE FROM backups WHERE id = ?')->execute([$r['id']]);
+            $removed++;
+        } else {
+            $known[$r['filepath']] = true;
+        }
+    }
+    foreach (glob('/var/www/backups/nas_*backup_*.zip') ?: [] as $zip) {
+        if (empty($known[$zip])) {
+            $pdo->prepare('INSERT INTO backups (filename, filepath, filesize, created_by) VALUES (?,?,?,1)')
+                ->execute([basename($zip), $zip, filesize($zip)]);
+            $added++;
+        }
+    }
+    return ['removed' => $removed, 'added' => $added];
+}
+
 // ── Handle actions ──────────────────────────────────────
 $message = '';
 $error   = '';
@@ -247,6 +274,10 @@ if (isset($_GET['download'])) {
         exit;
     }
 }
+
+// Reconcile DB vs disk right before listing, so Restore (which replaces the
+// entire DB mid-request) can't leave orphan rows pointing at vanished files.
+reconcile_backups($pdo);
 
 // List existing backups
 $backups = $pdo->query('
@@ -534,9 +565,15 @@ function fmt_size($bytes): string {
         </span>
       </p>
     </div>
-    <div class="hero-stat">
-      <span class="hero-stat-value"><?= count($backups) ?></span>
-      <span class="hero-stat-label">Backups</span>
+    <div class="hero-stat" style="flex-direction:row;gap:20px;align-items:flex-start;">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+        <span class="hero-stat-value" id="backup-count-big"><?= count($backups) ?></span>
+        <span class="hero-stat-label">Local</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;border-left:1px solid var(--border);padding-left:20px;">
+        <span class="hero-stat-value" id="usb-count-big" style="color:<?= $usb['active'] ? 'var(--accent2)' : 'var(--muted)' ?>;transition:color 0.3s ease;"><?= $usb['active'] ? $usb['count'] : '—' ?></span>
+        <span class="hero-stat-label">On USB</span>
+      </div>
     </div>
   </div>
 
@@ -877,17 +914,22 @@ function fmt_size($bytes): string {
       data = await r.json();
     } catch (e) { return; }
 
-    setUsbBadge(data.usb || { active: false, count: 0 });
+    const usb = data.usb || { active: false, count: 0 };
+    setUsbBadge(usb);
 
     const countEl = document.getElementById('backup-count');
     if (countEl) countEl.textContent = data.count;
 
-    // If a new backup appeared (e.g. cron just ran), reload the page so the
-    // list, action buttons, and IDs all stay consistent with the server view.
-    if (data.count !== lastCount) {
-      lastCount = data.count;
-      setTimeout(() => location.reload(), 400);
+    // Big hero counters: Local + USB. Update live without reloading the page -
+    // Create / Delete / Restore actions already reload via their form submits.
+    const localBig = document.getElementById('backup-count-big');
+    const usbBig   = document.getElementById('usb-count-big');
+    if (localBig) localBig.textContent = data.count;
+    if (usbBig) {
+      usbBig.textContent = usb.active ? usb.count : '—';
+      usbBig.style.color = usb.active ? 'var(--accent2)' : 'var(--muted)';
     }
+    lastCount = data.count;
   }
 
   setInterval(poll, POLL_MS);
