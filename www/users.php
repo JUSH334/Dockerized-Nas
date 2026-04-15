@@ -257,6 +257,40 @@ function fmt_bytes(int $b): string {
   select option { background: var(--surface); }
   .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+
+  /* User detail modal - wider than the edit modal */
+  .modal.wide { max-width: 780px; padding: 0; overflow: hidden; }
+  .detail-header { padding: 22px 28px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+  .detail-header .avatar { width: 48px; height: 48px; font-size: 16px; }
+  .detail-title { font-size: 20px; font-weight: 500; line-height: 1.2; }
+  .detail-sub   { font-size: 12px; color: var(--muted); margin-top: 3px; font-family: 'Space Mono', monospace; }
+  .detail-summary { display: flex; gap: 18px; padding: 14px 28px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .detail-summary-item { display: flex; flex-direction: column; gap: 2px; }
+  .detail-summary-val { font-family: 'Space Mono', monospace; font-size: 18px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .detail-summary-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .detail-tabs { display: flex; gap: 2px; padding: 0 28px; border-bottom: 1px solid var(--border); }
+  .detail-tab { background: none; border: none; color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; padding: 12px 14px; position: relative; transition: color 0.15s; }
+  .detail-tab:hover { color: var(--text); }
+  .detail-tab.active { color: var(--accent); }
+  .detail-tab.active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
+  .detail-body { max-height: 420px; overflow-y: auto; }
+  .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .detail-table thead { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .detail-table th { text-align: left; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 28px; border-bottom: 1px solid var(--border); }
+  .detail-table td { padding: 10px 28px; border-bottom: 1px solid rgba(42,45,56,0.5); }
+  .detail-table tr:last-child td { border-bottom: none; }
+  .detail-file-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  .detail-file-icon { font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: rgba(79,255,176,0.08); color: var(--accent); border: 1px solid rgba(79,255,176,0.2); }
+  .detail-file-icon.folder { color: var(--accent2); background: rgba(0,191,255,0.08); border-color: rgba(0,191,255,0.25); }
+  .share-chip { display: inline-block; font-family: 'Space Mono', monospace; font-size: 10px; padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; color: var(--text); margin-right: 4px; }
+  .perm-pill { display: inline-block; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 6px; background: rgba(79,255,176,0.08); color: var(--accent); border: 1px solid rgba(79,255,176,0.25); border-radius: 3px; }
+  .detail-empty { padding: 40px 28px; text-align: center; color: var(--muted); font-size: 13px; }
+  .detail-close { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 6px 10px; border-radius: var(--radius); font-family: 'DM Sans', sans-serif; font-size: 12px; transition: all 0.15s; margin-left: auto; }
+  .detail-close:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Make non-action cells on user rows feel clickable */
+  tr.user-row { cursor: pointer; transition: background 0.12s; }
+  tr.user-row:hover td { background: rgba(79,255,176,0.03); }
 </style>
 </head>
 <body>
@@ -321,7 +355,7 @@ function fmt_bytes(int $b): string {
       <?php foreach ($users as $u):
         $is_self = $u['id'] == $user['id'];
       ?>
-      <tr<?= $is_self ? ' class="self-row"' : '' ?>>
+      <tr class="user-row<?= $is_self ? ' self-row' : '' ?>" data-user-id="<?= $u['id'] ?>">
         <td>
           <div class="user-info">
             <div class="avatar"><?= strtoupper(substr($u['username'], 0, 2)) ?></div>
@@ -460,6 +494,33 @@ function fmt_bytes(int $b): string {
   </div>
 </div>
 
+<!-- User detail modal -->
+<div class="modal-backdrop" id="modal-detail">
+  <div class="modal wide">
+    <div class="detail-header">
+      <div class="avatar" id="detail-avatar"></div>
+      <div>
+        <div class="detail-title" id="detail-title">—</div>
+        <div class="detail-sub" id="detail-sub">—</div>
+      </div>
+      <button class="detail-close" onclick="closeModal('modal-detail')">Close</button>
+    </div>
+    <div class="detail-summary">
+      <div class="detail-summary-item"><span class="detail-summary-val" id="detail-files">0</span><span class="detail-summary-lbl">Files</span></div>
+      <div class="detail-summary-item"><span class="detail-summary-val" id="detail-folders">0</span><span class="detail-summary-lbl">Folders</span></div>
+      <div class="detail-summary-item"><span class="detail-summary-val" id="detail-size">0 B</span><span class="detail-summary-lbl">Used</span></div>
+      <div class="detail-summary-item"><span class="detail-summary-val" id="detail-shared-out">0</span><span class="detail-summary-lbl">Shared out</span></div>
+      <div class="detail-summary-item"><span class="detail-summary-val" id="detail-shared-in">0</span><span class="detail-summary-lbl">Shared with</span></div>
+    </div>
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-tab="owned" onclick="showDetailTab('owned')">Files they own</button>
+      <button class="detail-tab" data-tab="shared" onclick="showDetailTab('shared')">Shared with them</button>
+    </div>
+    <div class="detail-body" id="detail-body-owned"></div>
+    <div class="detail-body" id="detail-body-shared" style="display:none"></div>
+  </div>
+</div>
+
 <script>
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -492,16 +553,133 @@ function openEdit(u) {
 
 // Click to copy USB Archive hash to clipboard with a brief "copied" flash
 document.querySelectorAll('.archive-id').forEach(el => {
-  el.addEventListener('click', async () => {
+  el.addEventListener('click', async (e) => {
+    e.stopPropagation();
     const hash = el.dataset.hash;
     if (!hash || hash === '—') return;
     try {
       await navigator.clipboard.writeText(hash);
       el.classList.add('copied');
       setTimeout(() => el.classList.remove('copied'), 700);
-    } catch (e) { /* clipboard blocked - user can still select the text manually */ }
+    } catch (err) { /* clipboard blocked - user can still select the text manually */ }
   });
 });
+
+// Row click -> open the user detail modal. Ignore clicks that originated
+// from the inline action buttons or the archive pill.
+document.querySelectorAll('tr.user-row').forEach(tr => {
+  tr.addEventListener('click', e => {
+    if (e.target.closest('.actions, .archive-id, button, a')) return;
+    const userId = tr.dataset.userId;
+    if (userId) openUserDetail(userId);
+  });
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fileIcon(f) {
+  if (f.is_folder) return '<span class="detail-file-icon folder">DIR</span>';
+  const t = f.filetype || '';
+  if (t.startsWith('image/')) return '<span class="detail-file-icon">IMG</span>';
+  if (t.startsWith('video/')) return '<span class="detail-file-icon">VID</span>';
+  if (t.startsWith('audio/')) return '<span class="detail-file-icon">AUD</span>';
+  if (t === 'application/pdf') return '<span class="detail-file-icon">PDF</span>';
+  if (t.includes('zip') || t.includes('tar')) return '<span class="detail-file-icon">ZIP</span>';
+  return '<span class="detail-file-icon">FILE</span>';
+}
+
+function renderOwned(files) {
+  const body = document.getElementById('detail-body-owned');
+  if (!files.length) {
+    body.innerHTML = '<div class="detail-empty">This user hasn\'t uploaded anything yet.</div>';
+    return;
+  }
+  const rows = files.map(f => {
+    const date = new Date(f.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const sharedWith = f.shared_with.length
+      ? f.shared_with.map(s => `<span class="share-chip" title="${escapeHtml(s.perms)}">${escapeHtml(s.username)} · ${escapeHtml(s.perms)}</span>`).join('')
+      : '<span style="color:var(--muted);font-size:11px">—</span>';
+    return `<tr>
+      <td><div class="detail-file-name">${fileIcon(f)}<span>${escapeHtml(f.filename)}</span></div></td>
+      <td style="color:var(--muted)">${escapeHtml(f.size_fmt)}</td>
+      <td style="color:var(--muted)">${date}</td>
+      <td>${sharedWith}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<table class="detail-table">
+    <thead><tr><th>File</th><th>Size</th><th>Added</th><th>Shared with</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderShared(files) {
+  const body = document.getElementById('detail-body-shared');
+  if (!files.length) {
+    body.innerHTML = '<div class="detail-empty">No files shared with this user.</div>';
+    return;
+  }
+  const rows = files.map(f => {
+    const date = new Date(f.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return `<tr>
+      <td><div class="detail-file-name">${fileIcon(f)}<span>${escapeHtml(f.filename)}</span></div></td>
+      <td style="color:var(--muted)">${escapeHtml(f.size_fmt)}</td>
+      <td>${escapeHtml(f.owner_username)}</td>
+      <td><span class="perm-pill">${escapeHtml(f.perms)}</span></td>
+      <td style="color:var(--muted)">${date}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<table class="detail-table">
+    <thead><tr><th>File</th><th>Size</th><th>Owner</th><th>Permissions</th><th>Added</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function showDetailTab(tab) {
+  document.querySelectorAll('.detail-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('detail-body-owned').style.display  = tab === 'owned'  ? 'block' : 'none';
+  document.getElementById('detail-body-shared').style.display = tab === 'shared' ? 'block' : 'none';
+}
+
+async function openUserDetail(userId) {
+  // Reset to owned tab first
+  showDetailTab('owned');
+  document.getElementById('detail-body-owned').innerHTML  = '<div class="detail-empty">Loading…</div>';
+  document.getElementById('detail-body-shared').innerHTML = '';
+  openModal('modal-detail');
+
+  let data;
+  try {
+    const r = await fetch('/user_files.php?id=' + encodeURIComponent(userId), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch (e) {
+    document.getElementById('detail-body-owned').innerHTML = '<div class="detail-empty">Failed to load user details.</div>';
+    return;
+  }
+
+  document.getElementById('detail-avatar').textContent = data.user.username.slice(0, 2).toUpperCase();
+  document.getElementById('detail-title').textContent  = data.user.username;
+  const joined = new Date(data.user.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  document.getElementById('detail-sub').textContent    = `${data.user.role} · joined ${joined}`;
+  document.getElementById('detail-files').textContent       = data.summary.files;
+  document.getElementById('detail-folders').textContent     = data.summary.folders;
+  document.getElementById('detail-size').textContent        = data.user.storage_used_fmt;
+  document.getElementById('detail-shared-out').textContent  = data.summary.shared_by_them;
+  document.getElementById('detail-shared-in').textContent   = data.summary.shared_with_them;
+
+  // Admins have implicit access to every file via require_admin() - they never
+  // have explicit permission rows, so the "Shared with them" tab and stat are
+  // always 0 and would be misleading. Hide both for admin users.
+  const isAdmin = data.user.role === 'admin';
+  document.querySelector('.detail-tab[data-tab="shared"]').style.display = isAdmin ? 'none' : '';
+  document.getElementById('detail-shared-in').parentElement.style.display = isAdmin ? 'none' : '';
+  if (isAdmin) showDetailTab('owned');
+
+  renderOwned(data.owned);
+  renderShared(data.shared_with);
+}
 </script>
 </body>
 </html>

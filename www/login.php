@@ -27,6 +27,12 @@ $locked_out = count($attempts) >= $max_tries;
 $retry_in   = $locked_out ? $window - ($now - min($attempts)) : 0;
 
 $error = '';
+$notice = '';
+if (($_GET['reason'] ?? '') === 'role_changed') {
+    $notice = 'Your role was changed by an administrator. Please sign in again.';
+} elseif (($_GET['reason'] ?? '') === 'deleted') {
+    $notice = 'Your account was removed. Contact an administrator if this is a mistake.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($locked_out) {
@@ -39,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please enter your username and password.';
         } else {
             require_once 'db.php';
-            $stmt = $pdo->prepare('SELECT id, username, password, role FROM users WHERE username = ?');
+            $stmt = $pdo->prepare('SELECT id, username, password, role, session_version FROM users WHERE username = ?');
             $stmt->execute([$username]);
             $user = $stmt->fetch();
 
@@ -47,9 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 @unlink($rate_file); // clear attempts on success
                 $pdo->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
 
-                $_SESSION['user_id']   = $user['id'];
-                $_SESSION['username']  = $user['username'];
-                $_SESSION['role']      = $user['role'];
+                $_SESSION['user_id']         = $user['id'];
+                $_SESSION['username']        = $user['username'];
+                $_SESSION['role']            = $user['role'];
+                // Cache the role's session_version. auth.php compares this to the
+                // DB on every request - if an admin bumps the version (by changing
+                // the role), this session is forced out on its next click.
+                $_SESSION['session_version'] = (int)$user['session_version'];
 
                 header('Location: index.php');
                 exit;
@@ -263,6 +273,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   <?php if ($error): ?>
     <div class="error"><?= htmlspecialchars($error) ?></div>
+  <?php endif; ?>
+
+  <?php if ($notice): ?>
+    <div class="error" style="background:rgba(0,191,255,0.08);border-color:rgba(0,191,255,0.3);color:var(--accent2);"><?= htmlspecialchars($notice) ?></div>
   <?php endif; ?>
 
   <form method="POST" action="login.php">

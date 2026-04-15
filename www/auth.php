@@ -2,12 +2,41 @@
 // auth.php — include at the top of every protected page
 
 session_start();
+// db.php must be loaded at top-level so $pdo lives in global scope and is
+// reachable from validate_session_version() via `global $pdo`.
+require_once __DIR__ . '/db.php';
+
+// Force-logout if the user's session_version in the DB no longer matches the
+// one cached in their session. This is how role changes take effect on
+// active sessions - when an admin edits someone's role, the DB's
+// session_version bumps, and their next request here fails the check.
+function validate_session_version(): void {
+    if (!isset($_SESSION['user_id']) || !isset($_SESSION['session_version'])) return;
+    global $pdo;
+    $stmt = $pdo->prepare('SELECT role, session_version FROM users WHERE id = ?');
+    $stmt->execute([$_SESSION['user_id']]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        // User deleted out from under the session
+        session_destroy();
+        header('Location: /login.php?reason=deleted');
+        exit;
+    }
+    if ((int)$row['session_version'] !== (int)$_SESSION['session_version']) {
+        session_destroy();
+        header('Location: /login.php?reason=role_changed');
+        exit;
+    }
+    // Refresh role cache in case it was updated without version bump
+    $_SESSION['role'] = $row['role'];
+}
 
 function require_login(): void {
     if (!isset($_SESSION['user_id'])) {
         header('Location: /login.php');
         exit;
     }
+    validate_session_version();
 }
 
 function require_admin(): void {

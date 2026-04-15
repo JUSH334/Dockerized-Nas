@@ -15,7 +15,11 @@ CREATE TABLE IF NOT EXISTS users (
     role          ENUM('admin', 'user') NOT NULL DEFAULT 'user',
     storage_quota BIGINT DEFAULT NULL,              -- bytes; NULL = unlimited
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_login    DATETIME
+    last_login    DATETIME,
+    -- Incremented whenever the user's role changes; sessions cache this at
+    -- login. auth.php compares cached vs DB on every protected request and
+    -- forces re-login if they diverge (immediate effect of role changes).
+    session_version INT NOT NULL DEFAULT 0
 );
 
 -- --------------------------------------------------------

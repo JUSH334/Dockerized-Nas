@@ -13,13 +13,23 @@ if (!$id || $id === $current['id']) {
     header('Location: /users.php'); exit;
 }
 
-$stmt = $pdo->prepare('SELECT username FROM users WHERE id = ?');
+$stmt = $pdo->prepare('SELECT username, role FROM users WHERE id = ?');
 $stmt->execute([$id]);
 $target = $stmt->fetch();
 
 if (!$target) {
     $_SESSION['flash'] = ['type' => 'error', 'msg' => 'User not found.'];
     header('Location: /users.php'); exit;
+}
+
+// Guard: never leave the system with zero admins. If deleting this user
+// would remove the last admin, block it. Same invariant as the edit handler.
+if ($target['role'] === 'admin') {
+    $admin_count = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
+    if ($admin_count <= 1) {
+        $_SESSION['flash'] = ['type' => 'error', 'msg' => 'Cannot delete the last admin. Promote another user to admin first.'];
+        header('Location: /users.php'); exit;
+    }
 }
 
 // Delete physical files from disk
