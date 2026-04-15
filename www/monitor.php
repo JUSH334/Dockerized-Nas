@@ -670,7 +670,7 @@ function file_icon(string $type): string {
       </div>
 
       <div class="ext-props">
-        <div class="ext-prop"><span class="ext-prop-key">Role</span><span class="ext-prop-val">Backup mirror</span></div>
+        <div class="ext-prop"><span class="ext-prop-key">Role</span><span class="ext-prop-val">Backup archive (append-only)</span></div>
         <div class="ext-prop"><span class="ext-prop-key">Files mirrored</span><span class="ext-prop-val" data-m="usb_count">—</span></div>
         <div class="ext-prop"><span class="ext-prop-key">Last sync</span><span class="ext-prop-val" data-m="usb_last_sync">—</span></div>
         <div class="ext-prop"><span class="ext-prop-key">Last write</span><span class="ext-prop-val" data-m="usb_last_write">—</span></div>

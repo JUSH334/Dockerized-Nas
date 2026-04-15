@@ -89,6 +89,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
+// Push all backups to USB now (drops a marker file the watcher reads on its
+// next 3-second tick; sync completes within ~3-6 seconds)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'sync_all') {
+    if (usb_destination_active()) {
+        @touch('/var/www/backups/.sync_request');
+        $message = "Push to USB requested. All backups will be on the drive within ~5 seconds.";
+    } else {
+        $error = "USB drive is not connected. Plug it in and try again.";
+    }
+}
+
 // Delete backup
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
     $id = (int)($_POST['backup_id'] ?? 0);
@@ -544,10 +555,19 @@ function fmt_size($bytes): string {
       <h2>Create New Backup</h2>
       <p>Backs up the database and all uploaded files into a downloadable ZIP archive.</p>
     </div>
-    <form method="post">
-      <input type="hidden" name="action" value="create">
-      <button type="submit" class="btn btn-primary">Create Backup</button>
-    </form>
+    <div style="display:flex;gap:10px;">
+      <form method="post" style="margin:0;">
+        <input type="hidden" name="action" value="create">
+        <button type="submit" class="btn btn-primary">Create Backup</button>
+      </form>
+      <?php $usb_now = usb_sync_status(); ?>
+      <form method="post" style="margin:0;" title="<?= $usb_now['active'] ? 'Push every existing backup to the USB drive immediately' : 'Connect a USB drive to enable this' ?>">
+        <input type="hidden" name="action" value="sync_all">
+        <button type="submit" class="btn btn-secondary" <?= $usb_now['active'] ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;"' ?>>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Push All to USB
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- Schedule automatic backups -->
