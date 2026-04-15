@@ -125,61 +125,116 @@ The interface uses a dark theme with the following color palette:
 ### User Management (`users.php`) — Admin Only
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  NAS   📁 Files  👥 Users  📊 Monitor  ...          │
-├──────────────────────────────────────────────────────┤
-│  Users (3)                         [＋ New User]      │
-│                                                       │
-│  User              Role     Joined        Last Login  │
-│  ─────────────────────────────────────────────────    │
-│  [AD] admin        ADMIN    Jan 1, 2026   Apr 9      ✏️  │
-│       admin@local                                     │
-│  [JO] john         USER     Mar 5, 2026   Apr 8      ✏️🗑│
-│       john@test                                       │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│  NAS   📁 Files  👥 Users  📊 Monitor  💾 Backups  ...            │
+├────────────────────────────────────────────────────────────────────┤
+│  Users (3)                                        [＋ New User]    │
+│                                                                     │
+│  User         Role  Storage         USB Archive      Joined   ...  │
+│  ────────────────────────────────────────────────────────────────  │
+│  [AD] admin   ADMIN 3.7 KB · unlim  ● u_db4ec44fb938 Jan 1    ✏️   │
+│  [AL] alice   USER  120 KB / 500 MB ● u_a1b2c3d4e5f6 Mar 5    ✏️🗑 │
+│  [BO] bob     USER  0 B · unlimited ○ u_f7g8h9i0j1k2 Apr 1    ✏️🗑 │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 **Features:**
 - User table with avatar circles (first two letters of username)
 - Role badges: green `ADMIN`, gray `USER`
-- Create User modal: username, email (optional), password (min 8 chars), role selector
+- **USB Archive column** — each user's hashed USB folder name (`u_<12-hex>`):
+  - Click-to-copy (flashes accent color briefly on copy)
+  - Live status dot: green with glow when the watcher is actively mirroring and the user has uploads, grey when USB disconnected or the user has no uploads yet
+- Create User modal: username, password (min 8 chars), role selector, optional storage quota (MB)
 - Edit User modal: pre-filled fields, optional password change
-- Delete: confirmation dialog, cannot delete yourself
+- Delete: confirmation dialog
+  - Cannot delete yourself
+  - Cannot delete the last remaining admin (server-side guard)
+- Self-demotion blocked server-side in `action_user_edit.php`
 - Flash messages for all operations
+
+### User Detail Modal — opens on row click
+
+Click any user row (outside the inline action buttons and Archive pill) to open a wide modal showing the user's full file picture. Data is fetched from `/user_files.php?id=X`.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  [AL]  alice                                   [Close]     │
+│        user · joined Mar 12                                 │
+├────────────────────────────────────────────────────────────┤
+│   12      2       4.1 MB     1            3                │
+│   FILES   FOLDERS USED       SHARED OUT   SHARED WITH      │
+├────────────────────────────────────────────────────────────┤
+│  [ Files they own ]  [ Shared with them ]                  │
+├────────────────────────────────────────────────────────────┤
+│  File                     Size     Added      Shared with  │
+│  ────────────────────────────────────────────────          │
+│  [DIR] Photos             —        Mar 12     —            │
+│  [IMG] vacation.jpg       2.1 MB   Mar 15     bob · R      │
+│  [PDF] report.pdf         340 KB   Mar 14     —            │
+└────────────────────────────────────────────────────────────┘
+```
+
+- Summary row — big Space-Mono numbers + uppercase labels (same pattern as the monitor hero)
+- Two tabs: **Files they own** (with "Shared with" per row) and **Shared with them** (with owner + permission pill)
+- **Admin targets** always show both tabs. If the admin has a leftover `permissions` row from before their promotion, it's shown with an info banner — *"these explicit shares are redundant for admins who have role-level access."* Empty states also explain the admin-access model.
+- Icons follow the monitor page's file-icon pattern (`IMG`, `VID`, `PDF`, `DIR`, etc.)
+- Share relationships render as small Space-Mono chips; permissions use accent-colored pills (`R`, `RW`, `RWD`)
 
 ### System Monitor (`monitor.php`) — Admin Only
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  NAS   📁 Files  👥 Users  📊 Monitor  ...          │
-├──────────────────────────────────────────────────────┤
-│  System Monitor                                       │
-│                                                       │
-│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐        │
-│  │Total   │ │Files   │ │Uploads │ │Disk    │        │
-│  │Users   │ │Stored  │ │Size    │ │Free    │        │
-│  │   3    │ │  12    │ │ 4.2 MB │ │ 45 GB  │        │
-│  └────────┘ └────────┘ └────────┘ └────────┘        │
-│                                                       │
-│  ⚡ CPU Usage        23.4%  ████░░░░░░░░             │
-│  🧠 Memory           61.2%  ████████░░░░             │
-│  💾 Disk Usage        34.1%  █████░░░░░░░            │
-│                                                       │
-│  ┌─ Recent Uploads ─┐  ┌─ Storage by User ──┐       │
-│  │ 📄 report.pdf    │  │ admin    4.2 MB    │       │
-│  │ 🖼️ photo.jpg     │  │ john     1.1 MB    │       │
-│  └──────────────────┘  └───────────────────┘        │
-└──────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  System Health             ● live                    10h 22m  │
+│                                                      UPTIME   │
+├───────────────────────────────────────────────────────────────┤
+│  Server: Uptime  LoadAvg          ActiveSess  Last AutoBackup │
+│  Storage: Users  FilesStored      UploadsSize BackupsSize     │
+│                                                               │
+│  CPU Usage  2%    ██░░░░░░░░░░░    Memory   16%  ██░░░░░     │
+│  Uploads Volume 98%  ████████░     Backups Volume 98% ████   │
+│                                                  [Show Charts]│
+│                                                               │
+│  ┌─ External Storage ─────────────────────────────┐           │
+│  │ 📀 USB Drive — D:\nas-backups    ● Connected   │           │
+│  │  Capacity      ▓░░░░░░░░░  0% · 1.2 / 932 GB   │           │
+│  │  Role:            Backup + per-user archive    │           │
+│  │  Backups mirrored: 24                          │           │
+│  │  User archives:    3 users · 47 files          │           │
+│  │  User data size:   184 MB                      │           │
+│  │  Orphaned archives: 1 user · 2 files · 16 KB   │           │
+│  │  Last sync: 2s ago · Last write: 1s ago        │           │
+│  └────────────────────────────────────────────────┘           │
+│                                                               │
+│  ┌─ Active Sessions ──┐  ┌─ Recent Uploads ───┐               │
+│  │ [ADM] admin · 1m   │  │ [IMG] photo.jpg     │               │
+│  │ [USR] alice · 5m   │  │ [PDF] report.pdf    │               │
+│  └───────────────────┘  └────────────────────┘                │
+│  ┌─ Storage by User ──────────────────────────┐               │
+│  │ admin   3.7 KB · unlimited                 │               │
+│  │ alice   120 KB / 500 MB  ████░░            │               │
+│  └────────────────────────────────────────────┘               │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 **Features:**
+- **Live polling** — a 3-second background fetch to `/monitor_data.php` updates every `[data-m]` element in place; the backup page does the same with `/backup_data.php`. No page reloads.
+- **Live dot** in the hero pulses accent-green; dims to grey if polling fails.
 - Stat cards with animated fade-up entrance
 - Gauge bars with color coding:
-  - Green (`--accent`): 0–59%
-  - Orange (`--warn`): 60–84%
+  - Green (`--accent`): 0–64%
+  - Orange (`--warn`): 65–84%
   - Red (`--danger`): 85–100%
-- Recent uploads panel (last 10 files with icons, size, uploader)
-- Per-user storage panel with mini progress bars
+- **Separate Uploads Volume and Backups Volume gauges** when they're on different physical disks; otherwise a single shared gauge
+- **External Storage panel** — dedicated first-class section for the USB mirror, modeled after Synology/QNAP "External Storage" UI:
+  - Device identity (name + bind-mount path)
+  - Live connection status dot + text ("Connected" / "Disconnected" / "Not configured")
+  - Capacity gauge (colored same as the other volume gauges)
+  - Property rows: role, backups mirrored, user archives (N users · N files), user data size, orphaned archives, last sync, last write, sync interval
+  - Status dot pulses briefly on every write event (accent glow animation)
+- **Show Charts toggle** — smooth slide-down panel with three 60px sparkline charts (CPU %, Memory %, Load 1m). Rolling 60-sample window (~3 min history). Charts rendered with Chart.js 4.4.
+- **Active Sessions panel** — users with a login in the last 30 minutes. Rebuilt live on each poll tick.
+- **Recent Uploads panel** — last 10 files with icon badges (IMG, VID, PDF, ZIP, etc.)
+- **Per-user storage panel** — mini progress bars; no-quota users show "unlimited" text instead of a meaningless bar
 
 ### System Logs (`logs.php`) — Admin Only
 
@@ -213,33 +268,34 @@ The interface uses a dark theme with the following color palette:
 ### Backup & Restore (`backup.php`) — Admin Only
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  NAS   📁 Files  📊 Monitor  📋 Logs  💾 Backups    │
-├──────────────────────────────────────────────────────┤
-│  Backup & Restore                                     │
-│                                                       │
-│  ┌─ Create New Backup ──────────── [Create Backup] ┐ │
-│  │  Backs up database and uploaded files as ZIP     │ │
-│  └──────────────────────────────────────────────────┘ │
-│                                                       │
-│  ┌─ Automatic Backups ──── [Daily ▼] [Save Schedule]┐│
-│  │  Currently: Daily                                ││
-│  └──────────────────────────────────────────────────┘│
-│                                                       │
-│  ┌─ Saved Backups (2) ─────────────────────────────┐ │
-│  │ 📦 nas_backup_2026-04-09_21-28-59.zip           │ │
-│  │   1.2 MB · Apr 9, 2026 · by admin               │ │
-│  │              [Download] [Restore] [Delete]       │ │
-│  └──────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  Data Protection       ● USB mirror active · 24 file(s)        │
+│                                                                 │
+│                                   24     |    25               │
+│                                   LOCAL  |    ON USB           │
+├────────────────────────────────────────────────────────────────┤
+│  ┌─ Create New Backup  [Create Backup] [Push All to USB] ──┐   │
+│  └───────────────────────────────────────────────────────────┘   │
+│  ┌─ Automatic Backups  [Daily ▼] [02:00 ▼] [Save] ────────┐   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─ Saved Backups (24) ─────────────────────────────────────┐   │
+│  │ 📦 nas_auto_backup_2026-04-15_02-37-45.zip               │   │
+│  │   2.7 MB · Apr 15 · by system                            │   │
+│  │                       [Download] [Restore] [Delete]      │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 **Features:**
-- One-click manual backup creation
-- Schedule selector (Daily, Weekly, Monthly, Disabled)
+- **Dual count in hero** — `Local` (DB/disk files) and `On USB` (what's mirrored). Both update live via the 5-second poll. When the USB has preserved files from past deletions, the two numbers diverge visibly — proof that append-only is working.
+- **USB mirror badge** — next to the page subtitle; pulsing green dot when active, grey when disconnected. Live.
+- **Create Backup** — one-click manual backup creation
+- **Push All to USB** — disabled/greyed when USB is disconnected. When clicked, drops a sync-request marker; watcher picks it up within 3 seconds and does a full mirror
+- **Schedule selector** — frequency (Daily/Weekly/Monthly/Disabled) + time picker
 - Backup list with file size, timestamp, creator
 - Download, Restore, and Delete actions per backup
-- Restore confirmation dialog (inline warning bar)
+- Restore confirmation dialog (inline warning bar); append-only semantics mean restore-affected files stay on USB
 - Delete confirmation (browser confirm dialog)
 
 ### Permissions (`permissions.php`) — Admin Only
@@ -282,14 +338,20 @@ The active page is highlighted with the accent color (`--accent`).
 
 ## JavaScript
 
-JavaScript is minimal and inline — no external libraries or build tools:
+JavaScript is minimal and inline — the only external library is Chart.js (CDN, used only by the monitor page):
 
 | Feature | Page | Purpose |
 |---|---|---|
 | `openModal(id)` / `closeModal(id)` | index.php, users.php | Toggle modal visibility |
 | `openRename(id, name)` | index.php | Pre-fill rename modal |
 | `openEdit(user)` | users.php | Pre-fill edit user modal from JSON |
+| `openUserDetail(userId)` | users.php | Fetch `/user_files.php` and populate detail modal |
+| `showDetailTab(tab)` | users.php | Tab switcher in detail modal |
+| Archive-ID click-to-copy | users.php | Copy hash to clipboard + flash accent |
 | Drag & drop | index.php | File upload drop zone |
+| Live poll (monitor) | monitor.php | Every 3 s → fetch `/monitor_data.php`, update `[data-m]` elements, recolor gauges, rebuild Active Sessions list |
+| Live poll (backup) | backup.php | Every 5 s → fetch `/backup_data.php`, update hero counts + USB badge |
+| Chart.js sparklines | monitor.php | Rolling 60-sample window for CPU / Memory / Load |
 | Backdrop click | index.php, users.php | Close modal on backdrop click |
 | Auto-scroll | logs.php | Scroll log panel to bottom |
 | Select redirect | logs.php | Change line count via dropdown |

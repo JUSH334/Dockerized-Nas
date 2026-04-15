@@ -70,7 +70,7 @@ A self-hosted file storage platform running entirely in Docker.
 
 ### Slide content
 **4 tables** (with arrows showing foreign keys):
-- `users` — id, username, password (bcrypt), email, **role**, **storage_quota**, last_login
+- `users` — id, username, password (bcrypt), email, **role**, **storage_quota**, **session_version**, last_login
 - `files` — id, **owner_id**, filename, filepath, filesize, filetype, **is_folder**, **parent_id**
 - `permissions` — id, **file_id**, **user_id**, can_read, can_write, can_delete
 - `backups` — id, filename, filepath, filesize, **created_by**, created_at
@@ -87,6 +87,8 @@ A self-hosted file storage platform running entirely in Docker.
 *"**Cascade deletes everywhere** — if a user is deleted, their files cascade. If a folder is deleted, every file inside it cascades. We never have orphan rows."*
 
 *"**`storage_quota` is nullable** — null means unlimited, a number means the cap in bytes. The upload handler checks this before accepting a file and rejects with a friendly message if exceeded."*
+
+*"**`session_version` is the bit that closes a real security hole** — when an admin demotes someone, we bump this column. Every protected page load compares the session's cached version against the DB. Mismatch → force-logout on the next request. Without this, a demoted admin keeps admin rights until they manually sign out."*
 
 ---
 
@@ -130,6 +132,8 @@ Four boxes — File Mgmt, User Mgmt, Permissions, Monitoring & Backups.
 - Admin can: create, edit, delete users · set roles · set storage quotas
 - bcrypt password hashing
 - Login rate limiting: 5 failed attempts / 5 min lockout per IP
+- **Click a user row → detail modal** showing their files + who each file is shared with
+- **Role transition safeguards**: self-demotion blocked, last-admin protected, session invalidated on next request after role change
 
 ### Talking points
 *"The role split is intentionally simple — admin and user. Everything role-related goes through `require_admin()` at the top of protected pages, so adding a new admin-only feature is a one-line gate."*
@@ -139,6 +143,12 @@ Four boxes — File Mgmt, User Mgmt, Permissions, Monitoring & Backups.
 *"**Self-registration was a deliberate choice** — anyone can sign up, but the role is hardcoded to `user`. Admins are only created by other admins, so an attacker can't grant themselves admin via the registration form."*
 
 *"**Rate limiting matters because the site is public** through the tunnel. Without it, someone could try a million passwords against `admin`. With it, they get five tries every five minutes per IP — brute force becomes computationally pointless."*
+
+*"**Role changes take effect immediately.** If an admin demotes someone, their next click redirects to the login screen with a 'your role was changed' notice. We do this with a `session_version` column — each role change bumps the DB value, and `auth.php` compares the session's cached version to the DB on every request. No waiting for sessions to expire, no gap where a demoted admin can still do damage."*
+
+*"**We refuse to leave the system without an admin.** You can't demote yourself. You can't delete the last admin. You can't demote the last admin. The system enforces 'at least one admin must exist' as a hard invariant — otherwise no one would be able to manage backups, users, or restore anything."*
+
+*"**Click any user row** and you get a detail modal with two tabs: what they own (and who each file is shared with), and what's shared with them. Makes 'who has access to what?' a single click instead of a database query."*
 
 ---
 
@@ -165,20 +175,29 @@ Four boxes — File Mgmt, User Mgmt, Permissions, Monitoring & Backups.
 ## Slide 11 — Monitoring & Backups
 
 ### Slide content
-**Monitor**
+**Monitor (live, 3-second polling — no refresh needed)**
 - Uptime, load average, CPU, memory
-- Disk volume usage (real host disk, not container)
-- Active sessions (last 30 min)
-- Last automatic backup timestamp
-- Per-user storage breakdown · recent uploads feed
+- Per-volume disk gauges (Uploads + Backups) — real host disks, not container overlay
+- Active sessions (last 30 min) · Recent uploads feed · Per-user storage
+- **External Storage panel** — USB drive as a first-class peripheral (capacity gauge, role, files mirrored, last sync, orphaned archives)
+- Expandable Show Charts panel — rolling CPU/Memory/Load sparklines
 
-**Backup**
-- Manual backup button (one-click ZIP)
+**Backup (admin-only)**
+- Manual "Create Backup" — one-click ZIP (DB dump + every uploaded file)
 - Cron-driven schedule via UI calendar/time picker
-- ZIP contains DB dump + every uploaded file
-- Restore = wipe + reimport (atomic)
+- Restore = wipe + reimport (atomic rollback)
 - Auto-rotation: keeps last 10 scheduled backups
-- Stored in bind-mounted `external_backups/` (survives rebuilds)
+- Stored in bind-mounted `external_backups/` — survives container rebuilds
+- **"Push All to USB"** button for on-demand mirroring
+- Live dual counter in the hero: `Local` vs `On USB`. When append-only preserves a deleted file, the two numbers visibly diverge
+
+**USB Archive (host-side, optional)**
+- Windows watcher (runs at logon, hidden) polls every 3 s and mirrors:
+  - `external_backups/*.zip` → `D:\nas-backups\`
+  - `uploads/<user_id>/` → `D:\nas-users\u_<sha256(salt + user_id)[:12]>\`
+- **Append-only** (`robocopy /E`) — deletes in the NAS never touch the USB
+- Hashed folder names — physical theft reveals no usernames
+- Deleted users become "orphaned archives" — forensic retention, counted in the UI
 
 ### Talking points
 *"**Two features that work together**: monitoring tells you when something needs attention, backups give you the option to recover when something breaks. Awareness and insurance."*
@@ -187,11 +206,19 @@ Four boxes — File Mgmt, User Mgmt, Permissions, Monitoring & Backups.
 
 *"**Source of truth is the database.** 'Files Stored Size' isn't from walking the filesystem — it's a SUM query on the files table. Faster, and it can never disagree with the per-user breakdown shown lower on the page."*
 
+*"**Everything on the monitor updates live.** We poll a tiny JSON endpoint every 3 seconds and update values in place — same pattern Synology DSM and AWS Console use. No full page reloads, no interruption if you're mid-click."*
+
 *"**Why one ZIP for backups?** A backup includes the database AND the files. If we backed up only files, we'd lose ownership and permissions. If we backed up only the database, we'd have records pointing at files that no longer exist. Bundling them means restore is one atomic operation — you rewind to that exact moment."*
 
 *"**Auto-rotation prevents disk fill.** Scheduled backups run every hour or whatever the admin sets. If we never deleted old ones, the disk fills and the next backup fails silently. We keep the last 10, delete older ones."*
 
 *"**Why backups live outside the container.** They're bind-mounted to a folder on our host PC. Containers are designed to be disposable — you can rebuild them anytime. If backups lived inside the container, the very thing meant to protect us would die with the container. Putting them outside means a `docker compose down -v` doesn't destroy our recovery point. The backup outlives the thing it's backing up — which is the whole point."*
+
+*"**The USB drive is a true backup, not a sync target.** We chose append-only semantics deliberately — when an admin deletes a file in the NAS, the USB keeps it. Mirror mode would propagate the delete and defeat the purpose of a backup. This is the difference between 'sync' and 'backup': Synology calls these separate features for a reason, and we picked the one that protects against user error."*
+
+*"**Physical theft privacy.** USB folders are named with a 12-character hash — `u_db4ec44fb938` not `admin`. The hash-to-username map is on the NAS host only, never on the USB. Combined with an optional BitLocker layer, the drive reveals nothing if lost. Synology and QNAP both offer this, plus the encryption-at-rest layer — we've mirrored the same model."*
+
+*"**We treat the USB as a peripheral, not extra disk space.** The monitor page has a dedicated 'External Storage' panel — not a stat card stuffed into the corner. Device identity, capacity gauge, role, sync activity, orphaned archive count. That's how a real NAS surfaces external storage."*
 
 ---
 
@@ -263,12 +290,15 @@ Have these tabs/windows open before starting:
 2. **Create a folder**, navigate into it, upload a file inside.
 3. **Open Permissions** for one file → grant a regular user read-only.
 4. **Log out, log in as that regular user** → show they can see but not delete the shared file.
-5. **Log back in as admin → Monitor page**. Point out: uptime, load average, disk gauge, active sessions list (you should see yourself), last backup timestamp.
-6. **Backup page** → click "Create Backup," watch it appear in the list, mention the auto-rotation policy.
-7. **Switch to terminal** → run `nmap -p 3306,8080 localhost`. Show 8080 open, 3306 closed. Explain firewall design.
-8. **Phone demo** → refresh the tunnel URL, log in. Proves the public URL works from off-network.
+5. **Log back in as admin → Users page**. Point out the **USB Archive column** — each user's hashed folder. Click a user row → **detail modal** opens showing their files + sharing relationships.
+6. **Monitor page**. Point out: live dot in the hero, **External Storage panel** with capacity + mirror stats, click **Show Charts** to reveal the sparklines. Scroll down, point out Active Sessions (you should see yourself), last backup timestamp.
+7. **Backup page** → show the dual Local/On USB counter. Click **Create Backup** → watch both counts tick up within seconds. Then (optional) delete that backup locally and show that USB count stays high — append-only in action.
+8. **File Explorer (if USB plugged in)** → open `D:\nas-users\` on the other half of the screen. Show opaque hash folders. Point out the manifest maps back to usernames only on the host.
+9. **Switch to terminal** → run `nmap -p 3306,8080 localhost`. Show 8080 open, 3306 closed. Explain firewall design.
+10. **Role-change demo**: create a test user, open their tab in incognito, log them in. Then demote → their next click bounces to `/login.php?reason=role_changed`.
+11. **Phone demo** → refresh the tunnel URL, log in. Proves the public URL works from off-network.
 
-Total demo time target: ~4 minutes.
+Total demo time target: ~6 minutes (more features to show).
 
 ---
 
@@ -288,6 +318,21 @@ Total demo time target: ~4 minutes.
 
 ### "What's stopping someone from uploading a malicious PHP file and executing it?"
 *"Two things. First, uploads are stored under `/var/www/uploads/`, which Apache is configured to never execute as PHP. Second, the URL path users see is the database `filename`, not a real filesystem path — Apache never serves the upload path directly. So even a `.php` file in the upload folder is treated as a static download, not code."*
+
+### "What happens if I demote an active admin? Can they still access admin pages?"
+*"No. The `users` table has a `session_version` column that gets incremented on every role change. Each session caches that value at login. `auth.php` compares cached vs DB on every protected request — mismatch triggers an instant `session_destroy()` and redirect to the login page with a 'your role was changed' notice. So the demoted admin's next click kicks them out, no waiting for a timeout."*
+
+### "What if I accidentally demote the only admin?"
+*"You can't. Both `action_user_edit.php` and `action_user_delete.php` count the number of admins before allowing a demotion or deletion. If removing this user would leave zero admins, the action is refused with an explicit error. You also can't demote yourself — that's a separate guard."*
+
+### "Why are the USB folder names hashed?"
+*"Privacy against physical theft. The folder name on the USB is `sha256(salt + user_id)[:12]` — the salt is stored only in a manifest file on the host, never copied to the USB. If someone finds the drive, they see anonymous folders with no way to tell who owns what. Synology and QNAP offer similar — 'opaque folder names' is a standard NAS privacy feature. For stronger protection you'd add BitLocker on top, which encrypts the raw bytes."*
+
+### "What about files from deleted users — do they stay on the USB?"
+*"Yes, intentionally. Append-only semantics apply at the user level too. When an admin deletes a user, their DB rows cascade and their host upload folder is wiped, but the USB folder stays as a forensic archive. The monitor page shows an 'Orphaned archives' count so admins can reclaim space explicitly if they want. This is how real NAS products handle deletion — retention over reactivity."*
+
+### "Why did you choose append-only for the USB instead of a mirror?"
+*"Because mirror mode isn't a backup. If I delete a file by mistake and the USB mirrors the delete, my backup is gone. Append-only means deletes in the NAS never propagate — the USB accumulates a forensic history. Synology's Hyper Backup and QNAP's HBS3 both default to versioned/append-only for exactly this reason. Mirror mode is called 'Sync' in those products and they explicitly warn it's not a backup."*
 
 ### "What's the difference between Uploads Size and Uploads Volume?"
 *"Uploads Size is the total bytes users have stored — a sum of every file's size from the database. Uploads Volume is how full the underlying disk is, including everything else on that drive. You can have 50 MB of uploads on a disk that's 99% full of other things. The two answer different questions: 'how much have we stored' vs 'how much room is left'."*

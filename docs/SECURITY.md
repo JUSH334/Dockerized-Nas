@@ -50,6 +50,20 @@ network — no inbound port is opened on the router. This means:
   - Defends against brute-force attempts on the publicly tunneled URL.
 - **Default admin credentials** (`admin / admin123`) MUST be changed
   before any public deployment. Change via `/profile.php` after login.
+- **Session invalidation on role change.** The `users` table has a
+  `session_version INT` column (default 0). Each login caches the current
+  value into `$_SESSION['session_version']`. When an admin changes a
+  target user's role, the row's version is incremented. `auth.php`'s
+  `validate_session_version()` runs on every protected request and
+  compares session-cached vs DB. A mismatch triggers immediate
+  `session_destroy()` and redirects to `/login.php?reason=role_changed`
+  — closing the "demoted admin keeps admin rights until logout" window.
+  User deletion is handled the same way with `reason=deleted`.
+- **Role-change guards** (in `action_user_edit.php` and
+  `action_user_delete.php`):
+  - An admin cannot demote themselves (would lock them out).
+  - The last remaining admin cannot be demoted or deleted (system must
+    always have at least one administrator).
 
 ---
 
@@ -75,6 +89,34 @@ Defined in `permissions.php` and the `permissions` table:
 - Admins can set a `storage_quota` (in MB) on each user.
 - `action_upload.php` blocks uploads that would exceed the quota.
 - Prevents a single user from filling the disk and DoS'ing others.
+
+---
+
+## 3.5 USB archive privacy
+
+When the host-side USB mirror is running (optional feature; see
+[ARCHITECTURE.md](ARCHITECTURE.md#usb-mirror-architecture-host-side)),
+per-user files are mirrored to `D:\nas-users\u_<hash>\` where the hash
+is the first 12 hex chars of `sha256(salt + user_id)`.
+
+- **Folder obfuscation** — physical theft of the drive reveals anonymous
+  `u_<hex>` folders. Without the manifest (host-only), there's no way to
+  map a folder back to a specific user.
+- **Salt stays on the host** — written once into
+  `external_backups/.user_manifest.json` on the first run; never copied
+  to the USB. Without it, even a captured list of user IDs can't be
+  used to brute-force the mapping for specific users.
+- **Recommended: BitLocker on the drive** — encrypts the raw bytes at
+  the block level. Combined with the hashed folder names, this gives
+  two independent privacy layers: without the passphrase, no files can
+  be read at all; even with the passphrase, no usernames are revealed
+  on-disk.
+- **Forensic retention for deleted users** — when an admin deletes a
+  user, their host-side uploads folder is wiped and their DB rows
+  cascade, but the USB folder stays intact (append-only archive
+  semantics). The watcher counts these folders as "orphaned archives"
+  and surfaces the count on the Monitor page, so an admin can reclaim
+  space explicitly if desired.
 
 ---
 
