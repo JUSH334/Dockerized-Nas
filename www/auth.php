@@ -11,7 +11,7 @@ require_once __DIR__ . '/db.php';
 // active sessions - when an admin edits someone's role, the DB's
 // session_version bumps, and their next request here fails the check.
 function validate_session_version(): void {
-    if (!isset($_SESSION['user_id']) || !isset($_SESSION['session_version'])) return;
+    if (!isset($_SESSION['user_id'])) return;
     global $pdo;
     $stmt = $pdo->prepare('SELECT role, session_version FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
@@ -22,7 +22,11 @@ function validate_session_version(): void {
         header('Location: /login.php?reason=deleted');
         exit;
     }
-    if ((int)$row['session_version'] !== (int)$_SESSION['session_version']) {
+    // Sessions created before session_version tracking existed don't have the
+    // field cached. Treat "unset" as 0 so they still get validated against
+    // the DB. If the DB has bumped past 0 (any role change), they're out.
+    $cached = (int)($_SESSION['session_version'] ?? 0);
+    if ((int)$row['session_version'] !== $cached) {
         session_destroy();
         header('Location: /login.php?reason=role_changed');
         exit;
