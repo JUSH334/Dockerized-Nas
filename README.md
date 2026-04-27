@@ -1,7 +1,6 @@
 # NAS Web Server
 
-A web-based interface for managing a Network Attached Storage (NAS) server.
-Built for Project 2: Linux Web-Server.
+A self-hosted web-based interface for managing a Network Attached Storage (NAS) server.
 
 Includes file management, per-user permissions, role-based access control,
 system monitoring, scheduled backups + restore, login rate limiting, and
