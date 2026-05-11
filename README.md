@@ -1,35 +1,110 @@
 # NAS Web Server
 
-A self-hosted web-based interface for managing a Network Attached Storage (NAS) server.
+A self-hosted, Docker-orchestrated Network Attached Storage platform with role-based access control, per-file ACLs, scheduled backup-and-restore, live system monitoring, and zero-config public HTTPS via Cloudflare Tunnel.
 
-Includes file management, per-user permissions, role-based access control,
-system monitoring, scheduled backups + restore, login rate limiting, and
-optional public access via Cloudflare Tunnel.
+Built as a full-stack engineering project to demonstrate production-grade practices in a constrained environment: containerized service orchestration, defense-in-depth security, end-to-end automated testing, and an optional host-side data-redundancy layer that mirrors backups to an external drive in real time.
+
+---
+
+## Highlights
+
+- **Full-stack delivery** — PHP 8.2 / Apache 2.4 backend, MySQL 8.0 persistence, vanilla JS/HTML/CSS frontend, 25+ server-side modules across auth, file ops, permissions, monitoring, and backup.
+- **Containerized architecture** — four-service Docker Compose stack (web, db, phpMyAdmin, Cloudflare tunnel) with isolated networks, bind-mounted persistent volumes, and a custom Apache + PHP image.
+- **Defense-in-depth security** — bcrypt password hashing, PDO prepared statements (SQL injection), `htmlspecialchars` output encoding (XSS), `escapeshellarg` on every shell invocation (command injection), IP-based login rate limiting, session-invalidation on role transitions, and MySQL with no host-port exposure.
+- **75 automated tests** — 45 PHP unit tests covering DB and business-logic invariants, plus 30 bash/cURL end-to-end tests exercising the live HTTP stack.
+- **Operational tooling** — cron-scheduled backups with calendar UI, point-in-time restore, automatic 10-archive rotation, real-time monitoring dashboard (CPU, memory, disk, active sessions, per-user storage), and live log viewer.
+- **Zero-config remote access** — Cloudflare Quick Tunnel sidecar publishes a public HTTPS URL on every startup with no router, firewall, or DNS configuration required.
+- **Optional secondary backup tier** — Windows host-side PowerShell watcher (registered as a logon-time scheduled task) mirrors every backup ZIP to a USB drive within ~3 seconds of creation, with hashed per-user folders for privacy and BitLocker recommendations for physical security.
+- **Self-healing schema** — boot-time schema patcher upgrades existing DB volumes in place, so older deployments stay compatible with new feature columns without manual migrations.
 
 ---
 
 ## Tech Stack
 
-- **Apache 2.4** — web server
-- **PHP 8.2** — backend
-- **MySQL 8.0** — database
-- **phpMyAdmin** — DB admin UI
-- **Cloudflare Tunnel** (`cloudflared`) — public HTTPS access without port forwarding
-- **Docker Compose** — container orchestration
+| Layer | Technology |
+|---|---|
+| Web server | Apache 2.4 (custom image) |
+| Backend | PHP 8.2 (PDO, sessions, bcrypt) |
+| Database | MySQL 8.0 |
+| DB admin | phpMyAdmin |
+| Public access | Cloudflare Tunnel (`cloudflared`) |
+| Orchestration | Docker Compose |
+| Host-side automation | PowerShell + Windows Task Scheduler |
+| Testing | PHP unit harness, bash + cURL e2e |
 
 ---
 
-## Prerequisites
+## Architecture
 
+```
+        ┌────────────────────────┐
+        │  Cloudflare Quick      │  public HTTPS URL
+        │  Tunnel  (cloudflared) │  rotates on restart
+        └───────────┬────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────┐       ┌──────────────────┐
+│  nas-web                         │       │  nas-phpmyadmin  │
+│  Apache + PHP 8.2                │       │  DB admin UI      │
+│  - file manager / ACLs / auth    │       └────────┬─────────┘
+│  - monitoring + backup + cron    │                │
+└────────────────┬─────────────────┘                │
+                 │  internal docker network         │
+                 ▼                                  ▼
+        ┌──────────────────────────────────────────────┐
+        │  nas-db  (MySQL 8.0, no host port exposed)    │
+        └──────────────────────────────────────────────┘
+                 │
+                 ▼  (bind mount)
+        ./external_backups/  ──►  optional USB mirror (PowerShell watcher)
+```
+
+---
+
+## Feature Summary
+
+### File Management
+Upload, download, rename, delete files and folders. Breadcrumb navigation, search, drag-and-drop upload, per-user storage quotas enforced at upload time.
+
+### Role-Based & Per-File Access Control
+Two roles (`admin`, `user`). Owners and admins grant `read` / `write` / `delete` on individual files; every action re-checks permissions server-side so URL tampering cannot bypass them. Role transitions invalidate active sessions automatically.
+
+### System Monitoring (admin)
+Real-time CPU, memory, load, uptime, host disk usage, active sessions (30-min window), per-user storage breakdown, recent uploads feed, and a live external-storage panel showing USB mirror status.
+
+### Backup & Restore (admin)
+- Manual one-click backups (database + uploads → single zip)
+- Cron-driven scheduled backups with calendar UI
+- Point-in-time restore (rewinds DB and files atomically)
+- Auto-rotation: keeps the last 10 automatic backups
+- Optional USB mirror tier (see below)
+
+### Security Posture
+| Layer | Mitigation |
+|---|---|
+| Auth | bcrypt password hashing, PHP server-side sessions |
+| Brute force | 5 failed attempts / 5-min lockout per IP |
+| SQL injection | PDO prepared statements everywhere |
+| XSS | `htmlspecialchars` on all rendered output |
+| Command injection | `escapeshellarg` on every shell call |
+| Network | MySQL not exposed to host (internal docker network only) |
+| Session hijack | Role-transition session invalidation |
+
+See [docs/SECURITY.md](docs/SECURITY.md) for the layered defense breakdown.
+
+### Logs (admin)
+Apache access log, PHP error log, and backup operation log, all viewable in-app.
+
+---
+
+## Setup
+
+### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) or Docker Engine + Docker Compose (Linux)
-- ~2 GB free disk space for images
+- ~2 GB free disk space
 - A web browser
 
-That's it. No PHP, MySQL, or Apache installation needed on your machine — everything runs inside containers.
-
----
-
-## Setup (5 minutes)
+No PHP, MySQL, or Apache installation required — everything runs in containers.
 
 ### 1. Clone the repository
 ```bash
@@ -64,7 +139,6 @@ Visit **http://localhost:8080** and log in with the seeded admin account:
 | Username | Password |
 |----------|----------|
 | `admin`  | `admin123` |
-
 
 ---
 
@@ -109,11 +183,11 @@ docker logs nas-tunnel 2>&1 | grep -oE "https://[a-zA-Z0-9-]+\.trycloudflare\.co
 
 ## Optional: USB Backup Mirror (Windows)
 
-You can plug in any USB drive (flash stick or external HDD) and have the NAS automatically mirror every backup to it within ~3 seconds of creation. This is the "secondary backup destination" pattern real NAS products call **External Storage**.
+Plug in any USB drive and have the NAS automatically mirror every backup to it within ~3 seconds of creation — the same "secondary backup destination" pattern commercial NAS products call **External Storage**.
 
-**Important:** This is fully optional. The NAS works perfectly without it — without a USB plugged in, the External Storage panel just shows "Disconnected" and nothing breaks.
+**Fully optional.** Without a USB plugged in, the External Storage panel shows "Disconnected" and nothing else changes.
 
-### Setup (3 steps, ~1 minute)
+### Setup (~1 minute)
 
 1. **Plug in your USB drive.** Note the drive letter Windows assigns (e.g. `D:`, `E:`, `F:`).
 
@@ -127,7 +201,7 @@ You can plug in any USB drive (flash stick or external HDD) and have the NAS aut
    .\scripts\install_usb_sync.ps1
    ```
 
-That's it. The script registers a hidden Windows scheduled task that starts at user logon, polls every 3 seconds, and mirrors any new backup zip from `external_backups/` to the USB drive. Confirm by visiting the **Monitor** page in the NAS — the **External Storage** panel should show a green dot, capacity gauge, and live file count.
+The script registers a hidden Windows scheduled task that starts at user logon, polls every 3 seconds, and mirrors any new backup zip from `external_backups/` to the USB drive. Confirm by visiting the **Monitor** page — the **External Storage** panel should show a green dot, capacity gauge, and live file count.
 
 ### To remove later
 ```powershell
@@ -135,71 +209,21 @@ That's it. The script registers a hidden Windows scheduled task that starts at u
 ```
 
 ### What gets mirrored
-Two things, continuously (append-only, never deletes):
+Two things, continuously, append-only (never deletes):
 
 1. **`D:\nas-backups\`** — every backup ZIP as soon as it's created
 2. **`D:\nas-users\u_<hash>\`** — every user's uploaded files, one folder per user, named by a hash of the user ID so physical theft of the drive doesn't reveal who owns what. The hash → username mapping lives only on the NAS host (in `external_backups/.user_manifest.json`), never on the USB.
 
 ### Physical security recommendation
-For a production deployment, **turn on BitLocker** on the USB drive — right-click the drive in File Explorer → *"Turn on BitLocker"* → set a passphrase. The entire drive becomes AES-256 encrypted at the block level. Combined with the hashed user folder names, this means:
+For a production deployment, **turn on BitLocker** on the USB drive — right-click the drive in File Explorer → *"Turn on BitLocker"* → set a passphrase. The entire drive becomes AES-256 encrypted at the block level. Combined with the hashed folder names:
 - **Drive lost or stolen** → raw bytes unreadable without the passphrase
 - **Drive found plugged in** → folders are anonymous, no way to tell who owns what
 
 ### Notes
-- **File system:** if your USB is formatted as **FAT32**, large backups (>4 GB) will fail to copy. Reformat the drive as **exFAT** or **NTFS** before use (right-click drive in File Explorer → Format).
-- **Drive letter changes:** Windows usually keeps the same letter for the same physical port. If it shifts, just re-edit `mirror_watcher.ps1` and re-run `install_usb_sync.ps1`.
+- **File system:** if your USB is formatted as **FAT32**, large backups (>4 GB) will fail to copy. Reformat as **exFAT** or **NTFS**.
+- **Drive letter changes:** Windows usually keeps the same letter for the same physical port. If it shifts, re-edit `mirror_watcher.ps1` and re-run `install_usb_sync.ps1`.
 - **Unplug-safe:** if you yank the USB, the watcher logs a "paused" message and waits. Plug it back in and it resumes within 3 seconds. The NAS itself is unaffected.
-- **Linux/Mac users:** the watcher is Windows-only (uses Task Scheduler + robocopy). The equivalent on Linux would be a tiny bash script + cron + `rsync` — easy to port if needed.
-
----
-
-## Features
-
-### File Management ([index.php](www/index.php))
-- Upload, download, rename, delete files
-- Create, rename, delete folders
-- Breadcrumb navigation, search, drag-and-drop upload
-
-### User Management ([users.php](www/users.php), admin only)
-- Create / edit / delete users
-- Assign roles (`admin` / `user`)
-- Set per-user storage quotas (enforced at upload)
-
-### Per-File Permissions ([permissions.php](www/permissions.php))
-- File owners and admins can grant `read` / `write` / `delete` to other users
-- Permissions checked on every action (URL tampering won't bypass them)
-
-### System Monitoring ([monitor.php](www/monitor.php), admin only)
-- Server uptime, CPU, memory, load average
-- Disk volume usage (real host disk, not container overlay)
-- Active sessions (users logged in within 30 min)
-- Last automatic backup
-- Per-user storage breakdown
-- Recent uploads feed
-
-### Backup & Restore ([backup.php](www/backup.php), admin only)
-- Manual backups (database + uploads → single zip)
-- Scheduled cron-driven backups with calendar UI
-- Restore from any archive (rewinds DB and files)
-- Auto-rotation: keeps last 10 automatic backups
-- Backups stored in `./external_backups/` on the host (survives container rebuilds)
-- Optional **USB drive mirror** via host-side watcher (see "Optional: USB Backup Mirror" above) — every backup is automatically copied to a second physical device within ~3 seconds of creation
-
-### Logs ([logs.php](www/logs.php), admin only)
-- Apache access log
-- PHP error log
-- Backup operation log
-
-### Security
-- bcrypt password hashing
-- PHP server-side sessions
-- Login rate limiting: 5 failed attempts / 5 min lockout per IP
-- MySQL not exposed to host (internal Docker network only)
-- PDO prepared statements (SQL injection safe)
-- `htmlspecialchars` everywhere (XSS safe)
-- `escapeshellarg` on every shell call (command injection safe)
-
-See [docs/SECURITY.md](docs/SECURITY.md) for the full layered defense breakdown.
+- **Linux/Mac users:** the watcher is Windows-only (Task Scheduler + robocopy). The Linux equivalent is a small bash script + cron + `rsync` — easy to port.
 
 ---
 
@@ -209,7 +233,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for the full layered defense breakdown.
 NAS/
 ├── docker-compose.yml         # All four containers (web, db, phpmyadmin, tunnel)
 ├── .env                       # DB credentials (gitignored — you create this)
-├── README.md                  # You are here
+├── README.md
 ├── web/
 │   ├── Dockerfile             # PHP 8.2 + Apache + cron + zip image
 │   └── start.sh               # Container entrypoint (starts cron + Apache)
@@ -234,8 +258,7 @@ NAS/
 │   ├── ARCHITECTURE.md        # System overview
 │   ├── BACKEND.md             # PHP layer
 │   ├── FRONTEND.md            # UI layer
-│   ├── SECURITY.md            # Defense layers
-│   └── PRESENTATION.md        # Slide-by-slide reference
+│   └── SECURITY.md            # Defense layers
 ├── scripts/                   # Optional Windows host-side helpers (USB mirror)
 │   ├── install_usb_sync.ps1     # Register the watcher as a logon task
 │   ├── uninstall_usb_sync.ps1   # Remove the task
@@ -279,7 +302,7 @@ docker compose down
 ```bash
 docker compose down -v
 ```
-Use this if you want a clean reset. The seeded admin account will be recreated on next startup.
+Use this for a clean reset. The seeded admin account is recreated on next startup.
 
 ### Rebuild after editing the Dockerfile
 ```bash
